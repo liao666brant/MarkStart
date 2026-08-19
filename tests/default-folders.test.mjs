@@ -6,7 +6,7 @@ import { pruneDefaultFolders } from '../src/default-folders.js'
 test('removes deleted folders from the persisted defaults', async () => {
   const writes = []
   const storage = {
-    sync: {
+    local: {
       get: async () => ({
         defaultFolders: {
           items: [
@@ -16,6 +16,11 @@ test('removes deleted folders from the persisted defaults', async () => {
         },
       }),
       set: async value => writes.push(value),
+    },
+    sync: {
+      get: async () => {
+        throw new Error('Fixed folders must not use sync storage')
+      },
     },
   }
   const bookmarks = {

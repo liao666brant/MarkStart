@@ -84,7 +84,7 @@
       bookmarkListContainer.innerHTML = '';
 
       // 2. 获取默认文件夹列表
-      const { defaultFolders } = await chrome.storage.sync.get('defaultFolders');
+      const { defaultFolders } = await chrome.storage.local.get('defaultFolders');
       const { lastViewedFolder } = await chrome.storage.local.get('lastViewedFolder');
       
       let folderToShow = null;
@@ -120,23 +120,15 @@
         }
       }
 
-      // 如果没有找到有效的文件夹，回退到根书签文件夹(id='1')
+      // 如果没有找到有效的文件夹，回退到实际存在的书签栏目录
       if (!folderToShow) {
-        try {
-          // 通过消息传递获取根文件夹信息
-          const response = await chrome.runtime.sendMessage({ 
-            action: 'getBookmarkFolder', 
-            folderId: '1' 
-          });
-          
-          if (response.success && response.folder) {
-            folderToShow = response.folder;
-            if (response.children) {
-              folderContents = response.children;
-            }
-          }
-        } catch (error) {
-          console.log('Root folder not found:', error);
+        const [root] = bookmarks;
+        const folders = root?.children?.filter(node => Array.isArray(node.children) && !node.url) ?? [];
+        const bookmarksBar = folders.find(folder => folder.id === '1') ?? folders[0];
+
+        if (bookmarksBar) {
+          folderToShow = bookmarksBar;
+          folderContents = bookmarksBar.children ?? [];
         }
       }
 

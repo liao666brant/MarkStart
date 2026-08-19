@@ -1,5 +1,5 @@
 export async function pruneDefaultFolders(bookmarks, storage) {
-  const { defaultFolders } = await storage.sync.get('defaultFolders');
+  const { defaultFolders } = await storage.local.get('defaultFolders');
   const folders = Array.isArray(defaultFolders?.items) ? defaultFolders.items : [];
   const validFolders = [];
 
@@ -13,7 +13,7 @@ export async function pruneDefaultFolders(bookmarks, storage) {
   }
 
   if (validFolders.length !== folders.length) {
-    await storage.sync.set({
+    await storage.local.set({
       defaultFolders: { ...defaultFolders, items: validFolders },
     });
   }

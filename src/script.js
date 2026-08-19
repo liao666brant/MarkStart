@@ -1449,7 +1449,7 @@ function initWheelSwitching() {
       isProcessing = true;
 
       try {
-        const data = await chrome.storage.sync.get('defaultFolders');
+        const data = await chrome.storage.local.get('defaultFolders');
         const defaultFolders = data.defaultFolders?.items || [];
         if (defaultFolders.length <= 1) {
           isProcessing = false;
@@ -3184,7 +3184,7 @@ function getFolderBookmarkCount(folderId) {
 async function isDefaultFolder(folderId) {
   if (!folderId) return false;
 
-  const data = await chrome.storage.sync.get('defaultFolders');
+  const data = await chrome.storage.local.get('defaultFolders');
   const defaultFolders = data.defaultFolders?.items || [];
   return defaultFolders.some(folder => folder.id === folderId);
 }
@@ -3221,8 +3221,8 @@ async function createMenuItems(menu) {
   let isDefault = false;
   if (currentBookmarkFolder?.dataset?.id) {
     try {
-      // 确保在获取状态前等待 chrome.storage.sync.get 完成
-      const data = await chrome.storage.sync.get('defaultFolders');
+      // 确保在获取状态前等待 chrome.storage.local.get 完成
+      const data = await chrome.storage.local.get('defaultFolders');
       const defaultFolders = data.defaultFolders?.items || [];
       isDefault = defaultFolders.some(folder => folder.id === currentBookmarkFolder.dataset.id);
       
@@ -3350,7 +3350,7 @@ async function createMenuItems(menu) {
         await toggleDefaultFolder(folder);
         
         // 重新获取当前状态
-        const data = await chrome.storage.sync.get('defaultFolders');
+        const data = await chrome.storage.local.get('defaultFolders');
         const defaultFolders = data.defaultFolders?.items || [];
         const newIsDefault = defaultFolders.some(f => f.id === folder.dataset.id);
         
@@ -4070,7 +4070,7 @@ document.addEventListener('DOMContentLoaded', function () {
       let isDefault = false;
       if (currentCategory?.dataset?.id) {
         try {
-          const data = await chrome.storage.sync.get('defaultFolders');
+          const data = await chrome.storage.local.get('defaultFolders');
           const defaultFolders = data.defaultFolders?.items || [];
           isDefault = defaultFolders.some(folder => folder.id === currentCategory.dataset.id);
         } catch (error) {
@@ -6102,7 +6102,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     try {
-        const data = await chrome.storage.sync.get('defaultFolders');
+        const data = await chrome.storage.local.get('defaultFolders');
         let defaultFolders = data.defaultFolders?.items || [];
         const isDefault = defaultFolders.some(f => f.id === folderId);
 
@@ -6126,7 +6126,7 @@ document.addEventListener('DOMContentLoaded', function() {
             showToast(chrome.i18n.getMessage("addedToDefaultFolders", [folderName]));
         }
 
-        await chrome.storage.sync.set({
+        await chrome.storage.local.set({
             defaultFolders: {
                 items: defaultFolders,
                 lastUpdated: Date.now()

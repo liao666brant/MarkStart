@@ -12,6 +12,17 @@ TabMark 将收藏夹变成新标签页，让你收藏的书签一目了然、整
 - Edge版本：1.245 审核中
 - GitHub 版本：1.245
 
+## 开发与打包
+
+需要 Node.js 20.19+ 或 22.12+。首次执行 `npm install` 后：
+
+- `npm run dev`：使用 Vite 8 监听构建，Chrome/Edge 在“加载已解压的扩展程序”中选择 `dist/`。
+- `npm run build`：生成可加载的 MV3 扩展目录 `dist/`。
+- `npm run package`：构建后生成 `release/TabMark-Bookmark-New-Tab-1.245.zip`。
+- `npm run typecheck`：使用 TypeScript 7 检查 Vite 配置。
+
+现有扩展的经典脚本加载顺序和 Manifest 路径会原样保留；Vite 负责监听、输出和打包，避免改变已发布扩展的运行行为。
+
 ## 主要功能
 
 **将书签设置为新标签页**：安装拓展后，可以选择常用的书签文件夹。右键点击，选择"将书签设为主页"，即可在新标签页中快速打开选中路径书签文件夹。支持书签拖拽排序，侧边栏树状文件夹视图让你直观管理书签文件夹，快速找到所需内容；

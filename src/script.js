@@ -1,4 +1,6 @@
 import { featureTips } from './feature-tips.js';
+import { getBookmarksBarId } from './bookmark-root.js';
+import { pruneDefaultFolders } from './default-folders.js';
 import { initGestureNavigation } from './gesture-navigation.js';
 import { 
   SearchEngineManager, 
@@ -962,21 +964,31 @@ const bookmarksCache = {
   }
 };
 
-function updateBookmarkCards() {
+async function updateBookmarkCards() {
   const bookmarksList = document.getElementById('bookmarks-list');
   const defaultBookmarkId = localStorage.getItem('defaultBookmarkId');
-  const parentId = defaultBookmarkId || bookmarksList.dataset.parentId || '1';
+  let parentId = defaultBookmarkId || bookmarksList.dataset.parentId;
 
-  chrome.bookmarks.getChildren(parentId, function (bookmarks) {
-    displayBookmarks({ id: parentId, children: bookmarks });
+  if (!parentId) {
+    parentId = await getBookmarksBarId(chrome.bookmarks);
+  }
 
-    // 在显示书签后更新默认书签指示器
-    updateDefaultBookmarkIndicator();
-    updateSidebarDefaultBookmarkIndicator();
+  let bookmarks;
+  try {
+    bookmarks = await chrome.bookmarks.getChildren(parentId);
+  } catch {
+    parentId = await getBookmarksBarId(chrome.bookmarks);
+    bookmarks = await chrome.bookmarks.getChildren(parentId);
+  }
 
-    // 更新 bookmarks-list 的 data-parent-id
-    bookmarksList.dataset.parentId = parentId;
-  });
+  displayBookmarks({ id: parentId, children: bookmarks });
+
+  // 在显示书签后更新默认书签指示器
+  updateDefaultBookmarkIndicator();
+  updateSidebarDefaultBookmarkIndicator();
+
+  // 更新 bookmarks-list 的 data-parent-id
+  bookmarksList.dataset.parentId = parentId;
 }
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -991,7 +1003,9 @@ document.addEventListener('DOMContentLoaded', function () {
   let deleteTimeout = null;
   let bookmarkTreeNodes = []; // 定义全局变量
   // 调用 updateBookmarkCards
-  updateBookmarkCards();
+  updateBookmarkCards().catch(error => {
+    console.error('Error updating bookmark cards:', error);
+  });
   
   updateSearchEngineIcon(defaultSearchEngine);
 
@@ -1267,18 +1281,18 @@ async function waitForFirstCategory(attemptsLeft = 5) {
           updateFolderName(lastViewedFolder);
           selectSidebarFolder(lastViewedFolder);
           // 显示内容
-          bookmarksContainer.style.opacity = '1';
+          if (bookmarksContainer) bookmarksContainer.style.opacity = '1';
           return;
         }
-      } catch (error) {
-        console.log('Last viewed folder no longer exists:', error);
+      } catch {
+        await chrome.storage.local.remove('lastViewedFolder');
       }
     }
 
     // 3. 尝试使用用户设置的默认文件夹
-    const { defaultFolders } = await chrome.storage.sync.get('defaultFolders');
-    if (defaultFolders?.items?.length > 0) {
-      const defaultFolderId = defaultFolders.items[0].id;
+    const defaultFolders = await pruneDefaultFolders(chrome.bookmarks, chrome.storage);
+    if (defaultFolders.length > 0) {
+      const defaultFolderId = defaultFolders[0].id;
       try {
         const results = await chrome.bookmarks.get(defaultFolderId);
         if (results && results.length > 0) {
@@ -1286,30 +1300,30 @@ async function waitForFirstCategory(attemptsLeft = 5) {
           updateFolderName(defaultFolderId);
           selectSidebarFolder(defaultFolderId);
           // 显示内容
-          bookmarksContainer.style.opacity = '1';
+          if (bookmarksContainer) bookmarksContainer.style.opacity = '1';
           return;
         }
-      } catch (error) {
-        console.log('Default folder no longer exists:', error);
+      } catch {
+        // The folder was removed after the default-folder list was validated.
       }
     }
 
-    // 4. 兜底方案：使用书签栏根目录
-    await updateBookmarksDisplay('1');
-    updateFolderName('1');
-    selectSidebarFolder('1');
+    // 4. 兜底方案：使用实际存在的书签栏目录
+    await showBookmarksBar();
     // 显示内容
-    bookmarksContainer.style.opacity = '1';
+    if (bookmarksContainer) bookmarksContainer.style.opacity = '1';
 
   } catch (error) {
     console.error('Error in waitForFirstCategory:', error);
     if (attemptsLeft > 0) {
-      setTimeout(() => waitForFirstCategory(attemptsLeft - 1), 1000);
+      setTimeout(() => {
+        waitForFirstCategory(attemptsLeft - 1).catch(error => {
+          console.error('Error retrying first category:', error);
+        });
+      }, 1000);
     } else {
-      // 重试次数用完，使用根目录
-      await updateBookmarksDisplay('1');
-      updateFolderName('1');
-      selectSidebarFolder('1');
+      // 重试次数用完，使用实际存在的书签栏目录
+      await showBookmarksBar();
       // 显示内容
       const bookmarksContainer = document.querySelector('.bookmarks-container');
       if (bookmarksContainer) {
@@ -1317,6 +1331,13 @@ async function waitForFirstCategory(attemptsLeft = 5) {
       }
     }
   }
+}
+
+async function showBookmarksBar() {
+  const folderId = await getBookmarksBarId(chrome.bookmarks);
+  await updateBookmarksDisplay(folderId);
+  updateFolderName(folderId);
+  selectSidebarFolder(folderId);
 }
 
 // 修改 initDefaultFoldersTabs 函数
@@ -1330,9 +1351,11 @@ async function initDefaultFoldersTabs() {
   }
 
   // 获取默认文件夹列表
-  const data = await chrome.storage.sync.get(['defaultFolders', 'lastViewedFolder']);
-  let defaultFolders = data.defaultFolders?.items || [];
-  const lastViewedFolder = data.lastViewedFolder;
+  const [{ lastViewedFolder }, folders] = await Promise.all([
+    chrome.storage.local.get('lastViewedFolder'),
+    pruneDefaultFolders(chrome.bookmarks, chrome.storage),
+  ]);
+  let defaultFolders = folders;
   
   // 确保文件夹按 order 排序
   defaultFolders = defaultFolders.sort((a, b) => a.order - b.order);
@@ -1382,7 +1405,7 @@ async function initDefaultFoldersTabs() {
     await switchToFolder(folderToActivate);
   } else {
     // 当没有默认文件夹时，切换到根文件夹或其他指定文件夹
-    await switchToFolder('1'); // '1' 是根文件夹的 ID
+    await switchToFolder(await getBookmarksBarId(chrome.bookmarks));
   }
 
   // 重新初始化滚轮切换功能
@@ -1549,9 +1572,7 @@ async function switchToFolder(folderId) {
   } catch (error) {
     console.error('Error switching folder:', error);
     // 错误时回退到根目录
-    await updateBookmarksDisplay('1');
-    updateFolderName('1');
-    selectSidebarFolder('1');
+    await showBookmarksBar();
   }
 }
 
@@ -6402,6 +6423,3 @@ document.addEventListener('DOMContentLoaded', function() {
   // 其他初始化代码...
   startPeriodicSync();
 });
-
-
-

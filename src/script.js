@@ -2,6 +2,7 @@ import { featureTips } from './feature-tips.js';
 import { getBookmarksBarId } from './bookmark-root.js';
 import { pruneDefaultFolders } from './default-folders.js';
 import { initGestureNavigation } from './gesture-navigation.js';
+import { refreshBookmarkOrder } from './bookmark-order-sync.js';
 import { 
   SearchEngineManager, 
   updateSearchEngineIcon,
@@ -740,95 +741,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  // 检测是否在 Side Panel 中运行
-  const isSidePanel = window.location.search.includes('context=side_panel') || 
-                     window.location.hash.includes('context=side_panel');
-  
-  if (isSidePanel) {
-    document.body.classList.add('is-sidepanel');
-    
-    // 直接隐藏页脚 - 使用更直接的方法
-    const footer = document.querySelector('footer');
-    if (footer) {
-      footer.style.display = 'none';
-      footer.setAttribute('data-sidepanel-hidden', 'true'); // 添加标记以便于调试
-    }
-    
-    // 隐藏一些在 Side Panel 中不需要的元素
-    const elementsToHide = [
-      '.theme-toggle',
-      '#toggle-sidebar',
-      '.links-icons',
-      '.settings-icon'
-    ];
-    
-    elementsToHide.forEach(selector => {
-      const element = document.querySelector(selector);
-      if (element) {
-        element.style.display = 'none';
-      }
-    });
-    
-    // 调整布局和尺寸
-    const sidebarContainer = document.getElementById('sidebar-container');
-    if (sidebarContainer) {
-      sidebarContainer.classList.add('is-sidepanel');
-      // 在 Side Panel 中默认展开侧边栏
-      sidebarContainer.classList.remove('collapsed');
-    }
-
-    // 调整主容器样式
-    const mainContainer = document.querySelector('main');
-    if (mainContainer) {
-      mainContainer.style.padding = '1rem';
-    }
-
-    // 确保搜索框的动态高度调整功能正常工作
-    const searchInput = document.querySelector('.search-input');
-    if (searchInput) {
-      // 重新初始化搜索框高度
-      adjustTextareaHeight();
-      
-      // 确保输入事件监听器正常工作
-      searchInput.addEventListener('input', adjustTextareaHeight);
-    }
-    
-    // 调整默认文件夹切换区域的位置
-    const defaultFoldersTabs = document.querySelector('.default-folders-tabs');
-    if (defaultFoldersTabs) {
-      defaultFoldersTabs.style.bottom = '20px'; // 由于页脚被隐藏，调整底部距离
-    }
-    
-    // 添加一个延迟检查，确保页脚真的被隐藏了
-    setTimeout(() => {
-      const footerCheck = document.querySelector('footer');
-      if (footerCheck && footerCheck.style.display !== 'none') {
-        console.log('Footer still visible, forcing hide');
-        footerCheck.style.display = 'none !important';
-        document.body.classList.add('force-hide-footer');
-      }
-    }, 500);
-    
-    // 隐藏欢迎语
-    const welcomeMessage = document.getElementById('welcome-message');
-    const welcomeContainer = document.querySelector('.welcome-search-container');
-    
-    if (welcomeMessage) {
-      welcomeMessage.style.display = 'none';
-    }
-    
-    if (welcomeContainer) {
-      welcomeContainer.style.display = 'none';
-    }
-    
-    // 调整搜索容器位置
-    const searchContainer = document.querySelector('.search-container');
-    if (searchContainer) {
-      searchContainer.style.marginTop = '0.5rem';
-      searchContainer.style.marginBottom = '1rem';
-    }
-  }
-
   // 应用保存的书签宽度设置
   chrome.storage.sync.get(['bookmarkWidth'], (result) => {
     const savedWidth = result.bookmarkWidth || 190;
@@ -1101,20 +1013,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // 化书顺序步
   function syncBookmarkOrder(parentId) {
-    const cached = bookmarksCache.get(parentId);
-    if (!cached) return;
-    
-    chrome.bookmarks.getChildren(parentId, (bookmarks) => {
-      const chromeOrder = bookmarks.map(b => b.id);
-      const cachedOrder = cached.bookmarks.map(b => b.id);
-      
-      if (JSON.stringify(chromeOrder) !== JSON.stringify(cachedOrder)) {
-        // 更新缓存
-        bookmarksCache.set(parentId, bookmarks);
-        
-        // 重新渲染当前页
-        renderBookmarksPage({ bookmarks, totalCount: bookmarks.length }, 0);
-      }
+    refreshBookmarkOrder(chrome.bookmarks, bookmarksCache, parentId, (bookmarks) => {
+      renderBookmarksPage({ bookmarks, totalCount: bookmarks.length }, 0);
     });
   }
 
@@ -1932,8 +1832,6 @@ function createBookmarkCard(bookmark, index) {
     isProcessingClick = true;
 
     try {
-      // 通过页面文件名判断环境
-      const isSidePanel = window.location.pathname.endsWith('sidepanel.html');
       const isInternalUrl = bookmark.url.startsWith('chrome://') || 
                            bookmark.url.startsWith('chrome-extension://') ||
                            bookmark.url.startsWith('edge://') ||
@@ -1941,8 +1839,7 @@ function createBookmarkCard(bookmark, index) {
 
       console.log('[Bookmark Click] Starting...', {
         url: bookmark.url,
-        isInternalUrl: isInternalUrl,
-        isSidePanel: isSidePanel
+        isInternalUrl: isInternalUrl
       });
 
       // 处理内部链接
@@ -1959,97 +1856,14 @@ function createBookmarkCard(bookmark, index) {
         return;
       }
 
-      // 处理普通链接
-      if (isSidePanel) {
-        console.log('[Bookmark Click] Opening in Side Panel mode');
-        // 获取侧边栏模式下的链接打开方式设置
-        chrome.storage.sync.get(['sidepanelOpenInNewTab', 'sidepanelOpenInSidepanel'], (result) => {
-          // 默认在新标签页中打开
-          const openInNewTab = result.sidepanelOpenInNewTab !== false;
-          const openInSidepanel = result.sidepanelOpenInSidepanel === true;
-          
-          console.log('[Bookmark Click] Side Panel settings:', {
-            openInNewTab: openInNewTab,
-            openInSidepanel: openInSidepanel
-          });
-          
-          if (openInSidepanel) {
-            // 在侧边栏内打开链接
-            console.log('[Bookmark Click] Opening in Side Panel iframe');
-            // 使用 SidePanelManager 加载 URL
-            try {
-              // 检查 SidePanelManager 是否已定义
-              if (typeof SidePanelManager === 'undefined') {
-                // 如果未定义，则创建一个简单的加载函数
-                console.log('[Bookmark Click] SidePanelManager not defined, using fallback method');
-                const sidePanelContent = document.getElementById('side-panel-content');
-                const sidePanelIframe = document.getElementById('side-panel-iframe');
-                
-                if (sidePanelContent && sidePanelIframe) {
-                  sidePanelContent.style.display = 'block';
-                  sidePanelIframe.src = bookmark.url;
-                  
-                  // 添加返回按钮
-                  let backButton = document.querySelector('.back-to-links');
-                  if (!backButton) {
-                    backButton = document.createElement('div');
-                    backButton.className = 'back-to-links';
-                    backButton.innerHTML = '<span class="material-icons">arrow_back</span>';
-                    document.body.appendChild(backButton);
-                    
-                    // 添加点击事件
-                    backButton.addEventListener('click', () => {
-                      sidePanelContent.style.display = 'none';
-                      backButton.style.display = 'none';
-                    });
-                  }
-                  
-                  // 显示返回按钮
-                  backButton.style.display = 'flex';
-                } else {
-                  console.error('[Bookmark Click] Side panel elements not found, falling back to new tab');
-                  chrome.tabs.create({
-                    url: bookmark.url,
-                    active: true
-                  });
-                }
-              } else if (window.sidePanelManager) {
-                window.sidePanelManager.loadUrl(bookmark.url);
-              } else {
-                // 如果 SidePanelManager 已定义但实例不存在，创建一个新实例
-                window.sidePanelManager = new SidePanelManager();
-                window.sidePanelManager.loadUrl(bookmark.url);
-              }
-            } catch (error) {
-              console.error('[Bookmark Click] Error using SidePanelManager:', error);
-              // 出错时回退到在新标签页中打开
-              chrome.tabs.create({
-                url: bookmark.url,
-                active: true
-              });
-            }
-          } else if (openInNewTab) {
-            // 在新标签页中打开
-            chrome.tabs.create({
-              url: bookmark.url,
-              active: true
-            }).then(tab => {
-              console.log('[Bookmark Click] Tab created successfully:', tab);
-            }).catch(error => {
-              console.error('[Bookmark Click] Failed to create tab:', error);
-            });
-          }
-        });
-      } else {
-        console.log('[Bookmark Click] Opening in Main Window mode');
-        chrome.storage.sync.get(['openInNewTab'], (result) => {
-          if (result.openInNewTab !== false) {
-            window.open(bookmark.url, '_blank');
-          } else {
-            window.location.href = bookmark.url;
-          }
-        });
-      }
+      console.log('[Bookmark Click] Opening in Main Window mode');
+      chrome.storage.sync.get(['openInNewTab'], (result) => {
+        if (result.openInNewTab !== false) {
+          window.open(bookmark.url, '_blank');
+        } else {
+          window.location.href = bookmark.url;
+        }
+      });
     } catch (error) {
       console.error('[Bookmark Click] Error:', error);
     } finally {
@@ -3564,21 +3378,8 @@ let bookmarkOrderCache = {};
 
 // 添加一函数来同步本地缓存和 Chrome 书签
 function syncBookmarkOrder(parentId) {
-  const cached = bookmarksCache.get(parentId);
-  if (!cached) return;
-  
-  
-  chrome.bookmarks.getChildren(parentId, (bookmarks) => {
-    const chromeOrder = bookmarks.map(b => b.id);
-    const cachedOrder = cached.bookmarks.map(b => b.id);
-    
-    if (JSON.stringify(chromeOrder) !== JSON.stringify(cachedOrder)) {
-      // 更新缓存
-      bookmarksCache.set(parentId, bookmarks);
-      
-      // 重新渲染当前页
-      renderBookmarksPage({ bookmarks, totalCount: bookmarks.length }, 0);
-    }
+  refreshBookmarkOrder(chrome.bookmarks, bookmarksCache, parentId, (bookmarks) => {
+    displayBookmarks({ id: parentId, children: bookmarks });
   });
 }
 

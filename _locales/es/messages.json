@@ -324,7 +324,7 @@
         "description": "Texto del enlace de comentarios"
     },
     "settingsUpdateTip": {
-        "message": "Aquí puede configurar el color de fondo, fondo de pantalla, bola flotante, sitios recomendados, método de apertura de enlaces, limpiar marcadores inválidos...",
+        "message": "Aquí puede configurar el color de fondo, fondo de pantalla, sitios recomendados y método de apertura de enlaces...",
         "description": "Consejo de actualización de configuración"
     },
     "deleteSuccess": {

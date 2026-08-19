@@ -13,22 +13,12 @@
     "storage",
     "history",
     "tabGroups",
-    "management",
-    "sidePanel",
-    "commands",
     "tabs"
   ],
   "host_permissions": [
     "https://*/*",
     "http://*/*"
   ],
-  "action": {
-    "default_icon": {
-      "16": "images/icon-16.png",
-      "48": "images/icon-48.png",
-      "128": "images/icon-128.png"
-    }
-  },
   "icons": {
     "16": "images/icon-16.png",
     "48": "images/icon-48.png",
@@ -36,40 +26,5 @@
   },
   "background": {
     "service_worker": "src/background.js"
-  },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["src/content.js"]
-    },
-    {
-      "matches": ["<all_urls>"],
-      "js": ["src/sidepanel-navigation.js"],
-      "run_at": "document_end"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "_favicon/*", 
-        "src/fonts/*",
-        "images/sider-icon/*",
-        "images/*"
-      ],
-      "matches": ["<all_urls>"]
-    }
-  ],
-  "side_panel": {
-    "default_path": "src/sidepanel.html",
-    "default_width": 430
-  },
-  "commands": {
-    "open_side_panel": {
-      "suggested_key": {
-        "default": "Alt+B",
-        "mac": "Command+B"
-      },
-      "description": "打开侧边栏"
-    }
   }
 }

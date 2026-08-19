@@ -352,7 +352,7 @@
         "description": "Feedback-Link-Text"
     },
     "settingsUpdateTip": {
-        "message": "Hier können Sie Hintergrundfarbe, Hintergrundbild, schwebenden Ball, empfohlene Websites, Link-Öffnungsweise, ungültige Lesezeichen bereinigen...",
+        "message": "Hier können Sie Hintergrundfarbe, Hintergrundbild, empfohlene Websites und Link-Öffnungsweise festlegen...",
         "description": "Einstellungen-Update-Tipp"
     },
     "deleteSuccess": {

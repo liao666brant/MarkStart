@@ -150,8 +150,6 @@ class FeatureTips {
     getVersionFeatures(lastVersion, currentVersion) {
         // 版本功能映射表
         const versionFeatures = {
-            '1.238': ['bookmarkCleanup'],
-            '1.239': ['sidebarFeatures'],
             '1.241': ['searchEngineUpdate'],
             '1.243': ['customTab'],
             '1.244': ['shortcuts'],

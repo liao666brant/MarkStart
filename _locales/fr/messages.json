@@ -324,7 +324,7 @@
         "description": "Texte du lien de retour"
     },
     "settingsUpdateTip": {
-        "message": "Vous pouvez configurer ici la couleur d'arrière-plan, le fond d'écran, la boule flottante, les sites recommandés, la méthode d'ouverture des liens, nettoyer les favoris invalides...",
+        "message": "Vous pouvez configurer ici la couleur d'arrière-plan, le fond d'écran, les sites recommandés et la méthode d'ouverture des liens...",
         "description": "Conseil de mise à jour des paramètres"
     },
     "deleteSuccess": {

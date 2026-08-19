@@ -400,7 +400,7 @@
         "description": "電郵連結文字"
     },
     "settingsUpdateTip": {
-        "message": "你可以在這裡設置背景顏色、桌布、懸浮球、推薦網站、連結開啟方式、清理失效書籤...",
+        "message": "你可以在這裡設置背景顏色、桌布、推薦網站和連結開啟方式...",
         "description": "設定更新提示"
     },
     "deleteSuccess": {

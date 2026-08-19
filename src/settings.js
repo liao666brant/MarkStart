@@ -12,17 +12,8 @@ class SettingsManager {
     this.tabButtons = document.querySelectorAll('.settings-tab-button');
     this.tabContents = document.querySelectorAll('.settings-tab-content');
     this.bgOptions = document.querySelectorAll('.settings-bg-option');
-    this.enableFloatingBallCheckbox = document.getElementById('enable-floating-ball');
     this.enableQuickLinksCheckbox = document.getElementById('enable-quick-links');
     this.openInNewTabCheckbox = document.getElementById('open-in-new-tab');
-    
-    // 侧边栏模式下的链接打开方式设置元素可能不存在于所有页面
-    // 添加安全检查，避免在元素不存在时出错
-    const sidepanelOpenInNewTab = document.getElementById('sidepanel-open-in-new-tab');
-    const sidepanelOpenInSidepanel = document.getElementById('sidepanel-open-in-sidepanel');
-    
-    this.sidepanelOpenInNewTabCheckbox = sidepanelOpenInNewTab;
-    this.sidepanelOpenInSidepanelCheckbox = sidepanelOpenInSidepanel;
     
     this.widthSettings = document.getElementById('floating-width-settings');
     this.widthSlider = document.getElementById('width-slider');
@@ -46,18 +37,8 @@ class SettingsManager {
       this.initQuickLinksSettings();
     }
     
-    if (this.enableFloatingBallCheckbox) {
-      this.initFloatingBallSettings();
-    }
-    
-    if (this.openInNewTabCheckbox || this.sidepanelOpenInNewTabCheckbox || this.sidepanelOpenInSidepanelCheckbox) {
+    if (this.openInNewTabCheckbox) {
       this.initLinkOpeningSettings();
-    }
-    
-    // 检查书签管理相关元素
-    const bookmarkCleanupButton = document.getElementById('open-bookmark-cleanup');
-    if (bookmarkCleanupButton) {
-      this.initBookmarkManagementTab();
     }
     
     // 检查宽度设置相关元素
@@ -96,11 +77,6 @@ class SettingsManager {
       this.initWheelSwitchingTab();
     }
     
-    // 检查快捷键设置相关元素
-    const configureShortcuts = document.getElementById('configure-shortcuts');
-    if (configureShortcuts) {
-      this.initShortcutsSettings();
-    }
   }
 
   initEventListeners() {
@@ -135,15 +111,6 @@ class SettingsManager {
       option.addEventListener('click', () => this.handleBackgroundChange(option));
     });
 
-    // 悬浮球设置
-    if (this.enableFloatingBallCheckbox) {
-      this.enableFloatingBallCheckbox.addEventListener('change', () => {
-        chrome.storage.sync.set({
-          enableFloatingBall: this.enableFloatingBallCheckbox.checked
-        });
-      });
-    }
-    
     // 添加键盘事件监听，按ESC关闭侧边栏
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.settingsSidebar && this.settingsSidebar.classList.contains('open')) {
@@ -266,11 +233,6 @@ class SettingsManager {
   }
 
   loadSavedSettings() {
-    // 加载悬浮球设置
-    chrome.storage.sync.get(['enableFloatingBall'], (result) => {
-      this.enableFloatingBallCheckbox.checked = result.enableFloatingBall !== false;
-    });
-
     // 加载背景设置
     const savedBg = localStorage.getItem('selectedBackground');
     if (savedBg) {
@@ -373,35 +335,12 @@ class SettingsManager {
     }
   }
 
-  initFloatingBallSettings() {
-    // 加载悬浮球设置
-    chrome.storage.sync.get(['enableFloatingBall'], (result) => {
-      this.enableFloatingBallCheckbox.checked = result.enableFloatingBall !== false;
-    });
-
-    // 监听悬浮球设置变化
-    this.enableFloatingBallCheckbox.addEventListener('change', () => {
-      const isEnabled = this.enableFloatingBallCheckbox.checked;
-      // 发送消息到 background script
-      chrome.runtime.sendMessage({
-        action: 'updateFloatingBallSetting',
-        enabled: isEnabled
-      }, () => {
-        // 保存设置到 storage
-        chrome.storage.sync.set({ enableFloatingBall: isEnabled });
-      });
-    });
-  }
-
   initLinkOpeningSettings() {
     // 检查元素是否存在
     if (!this.openInNewTabCheckbox) {
       console.log('openInNewTabCheckbox not found, skipping settings initialization');
       return;
     }
-    
-    // 检查侧边栏模式下的链接打开方式设置元素是否存在
-    const hasSidepanelSettings = this.sidepanelOpenInNewTabCheckbox && this.sidepanelOpenInSidepanelCheckbox;
     
     // 加载链接打开方式设置
     chrome.storage.sync.get(['openInNewTab'], (result) => {
@@ -414,57 +353,6 @@ class SettingsManager {
       chrome.storage.sync.set({ openInNewTab: isEnabled });
     });
     
-    // 如果侧边栏模式下的链接打开方式设置元素不存在，则跳过
-    if (!hasSidepanelSettings) {
-      console.log('Sidepanel checkboxes not found, skipping sidepanel settings initialization');
-      return;
-    }
-    
-    // 加载侧边栏模式下的链接打开方式设置
-    chrome.storage.sync.get(['sidepanelOpenInNewTab', 'sidepanelOpenInSidepanel'], (result) => {
-      // 默认在新标签页中打开
-      this.sidepanelOpenInNewTabCheckbox.checked = result.sidepanelOpenInNewTab !== false;
-      this.sidepanelOpenInSidepanelCheckbox.checked = result.sidepanelOpenInSidepanel === true;
-      
-      // 确保两个选项是互斥的
-      if (this.sidepanelOpenInNewTabCheckbox.checked && this.sidepanelOpenInSidepanelCheckbox.checked) {
-        // 如果两个都被选中，优先使用在新标签页中打开
-        this.sidepanelOpenInSidepanelCheckbox.checked = false;
-        chrome.storage.sync.set({ sidepanelOpenInSidepanel: false });
-      }
-    });
-    
-    // 监听侧边栏模式下的链接打开方式设置变化
-    this.sidepanelOpenInNewTabCheckbox.addEventListener('change', () => {
-      const isEnabled = this.sidepanelOpenInNewTabCheckbox.checked;
-      chrome.storage.sync.set({ sidepanelOpenInNewTab: isEnabled });
-      
-      // 如果启用了在新标签页中打开，则禁用在侧边栏内打开
-      if (isEnabled && this.sidepanelOpenInSidepanelCheckbox.checked) {
-        this.sidepanelOpenInSidepanelCheckbox.checked = false;
-        chrome.storage.sync.set({ sidepanelOpenInSidepanel: false });
-      }
-    });
-    
-    this.sidepanelOpenInSidepanelCheckbox.addEventListener('change', () => {
-      const isEnabled = this.sidepanelOpenInSidepanelCheckbox.checked;
-      chrome.storage.sync.set({ sidepanelOpenInSidepanel: isEnabled });
-      
-      // 如果启用了在侧边栏内打开，则禁用在新标签页中打开
-      if (isEnabled && this.sidepanelOpenInNewTabCheckbox.checked) {
-        this.sidepanelOpenInNewTabCheckbox.checked = false;
-        chrome.storage.sync.set({ sidepanelOpenInNewTab: false });
-      }
-    });
-  }
-
-  initBookmarkManagementTab() {
-    const tabButton = document.querySelector('[data-tab="bookmark-management"]');
-    if (tabButton) {
-      tabButton.addEventListener('click', () => {
-        this.switchTab('bookmark-management');
-      });
-    }
   }
 
   initWheelSwitchingTab() {
@@ -879,16 +767,6 @@ class SettingsManager {
     });
   }
 
-  initShortcutsSettings() {
-    const shortcutItem = document.getElementById('configure-shortcuts');
-    if (shortcutItem) {
-      shortcutItem.addEventListener('click', () => {
-        chrome.tabs.create({
-          url: 'chrome://extensions/shortcuts'
-        });
-      });
-    }
-  }
 }
 
 // 导出设置管理器实例

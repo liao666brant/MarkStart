@@ -400,7 +400,7 @@
         "description": "이메일 링크 텍스트"
     },
     "settingsUpdateTip": {
-        "message": "배경색, 배경화면, 플로팅 볼, 추천 사이트, 링크 열기 방식, 유효하지 않은 북마크 정리 등을 설정할 수 있습니다...",
+        "message": "배경색, 배경화면, 추천 사이트, 링크 열기 방식을 설정할 수 있습니다...",
         "description": "설정 업데이트 팁"
     },
     "deleteSuccess": {

@@ -356,7 +356,7 @@
         "description": "Feedback link text"
     },
     "settingsUpdateTip": {
-        "message": "You can set background color, wallpaper, floating ball, site recommendations, link opening method, clean up invalid bookmarks...",
+        "message": "You can set background color, wallpaper, site recommendations, and link opening method...",
         "description": "Settings update tip"
     },
     "deleteSuccess": {

@@ -425,7 +425,7 @@
         "description": "反馈链接文本"
     },
     "settingsUpdateTip": {
-        "message": "你可以在这里设置背景颜色、壁纸、悬浮球、推荐网站、链接打开方式、清理失效书签...",
+        "message": "你可以在这里设置背景颜色、壁纸、推荐网站和链接打开方式...",
         "description": "设置更新提示"
     },
     "deleteSuccess": {

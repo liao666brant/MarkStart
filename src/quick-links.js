@@ -1,4 +1,5 @@
 import { ICONS } from './icons.js';
+import QRCode from 'qrcode';
 
 document.addEventListener('DOMContentLoaded', function () {
   const quickLinksContainer = document.getElementById('quick-links');
@@ -750,7 +751,7 @@ document.addEventListener('DOMContentLoaded', function () {
     qrContainer.appendChild(title);
 
     // 创建 QR 码容器
-    const qrCodeElement = document.createElement('div');
+    const qrCodeElement = document.createElement('canvas');
     qrContainer.appendChild(qrCodeElement);
 
     // 添加 URL 显示
@@ -784,7 +785,7 @@ document.addEventListener('DOMContentLoaded', function () {
     downloadButton.textContent = getLocalizedMessage('download');
     downloadButton.onclick = () => {
       setTimeout(() => {
-        const canvas = qrCodeElement.querySelector('canvas');
+        const canvas = qrCodeElement;
         if (canvas) {
           const link = document.createElement('a');
           // 使用书签名称作为文件名，添加 .png 扩展名
@@ -826,12 +827,9 @@ document.addEventListener('DOMContentLoaded', function () {
     modal.appendChild(qrContainer);
     document.body.appendChild(modal);
 
-    // 使用 qrcode.js 库生成二维码
-    new QRCode(qrCodeElement, {
-      text: url,
-      width: 200,
-      height: 200
-    });
+    void QRCode.toCanvas(qrCodeElement, url, { width: 200 }).catch((error) =>
+      console.error('Failed to create QR code:', error),
+    );
 
     // 点击模态框外部关闭
     modal.addEventListener('click', function (event) {

@@ -1,4 +1,7 @@
 import { featureTips } from './feature-tips.js';
+import { debounce, throttle } from 'radashi';
+import QRCode from 'qrcode';
+import Sortable from 'sortablejs';
 import { getBookmarksBarId } from './bookmark-root.js';
 import { pruneDefaultFolders } from './default-folders.js';
 import { initGestureNavigation } from './gesture-navigation.js';
@@ -77,7 +80,7 @@ function createQRCode(url, bookmarkName) {
   qrContainer.appendChild(title);
 
   // 创建 QR 码容器
-  const qrCodeElement = document.createElement('div');
+  const qrCodeElement = document.createElement('canvas');
   qrContainer.appendChild(qrCodeElement);
 
   // 添加 URL 显示
@@ -112,7 +115,7 @@ function createQRCode(url, bookmarkName) {
   downloadButton.onclick = () => {
     // 给 QRCode 生成一些时间
     setTimeout(() => {
-      const canvas = qrCodeElement.querySelector('canvas');
+      const canvas = qrCodeElement;
       if (canvas) {
         const link = document.createElement('a');
         // 使用书签名称作为文件名，并添加 .png 扩展名
@@ -154,12 +157,9 @@ function createQRCode(url, bookmarkName) {
   modal.appendChild(qrContainer);
   document.body.appendChild(modal);
 
-  // 使用 qrcode.js 库生成二维码
-  new QRCode(qrCodeElement, {
-    text: url,
-    width: 200,
-    height: 200
-  });
+  void QRCode.toCanvas(qrCodeElement, url, { width: 200 }).catch((error) =>
+    console.error('Failed to create QR code:', error),
+  );
 
   // 点击模态框外部关闭
   modal.addEventListener('click', function (event) {
@@ -469,19 +469,19 @@ const ColorCache = {
   },
 
   // 使用防抖保存到 localStorage
-  scheduleSave: _.debounce(function () {
+  scheduleSave: debounce({ delay: 1000 }, () => {
     try {
-      const dataToSave = Object.fromEntries(this.data);
-      localStorage.setItem(this.storageKey, JSON.stringify(dataToSave));
+      const dataToSave = Object.fromEntries(ColorCache.data);
+      localStorage.setItem(ColorCache.storageKey, JSON.stringify(dataToSave));
     } catch (error) {
       // 如果存储失败（比如超出配额），清理一半的缓存后重试
-      const entries = Array.from(this.data.entries());
+      const entries = Array.from(ColorCache.data.entries());
       entries.slice(0, Math.floor(entries.length / 2)).forEach(([key]) => {
-        this.data.delete(key);
+        ColorCache.data.delete(key);
       });
-      this.scheduleSave();
+      ColorCache.scheduleSave();
     }
-  }, 1000)
+  })
 };
 
 
@@ -524,12 +524,12 @@ function initVirtualScroll() {
   }
 
   // 滚动处理函数
-  const handleScroll = _.throttle(() => {
+  const handleScroll = throttle({ interval: 16, trailing: true }, () => {
     if (renderTimeout) {
       cancelAnimationFrame(renderTimeout);
     }
     renderTimeout = requestAnimationFrame(renderVisibleBookmarks);
-  }, 16);
+  });
 
   // 窗口大小变化处理函数
   function handleResize() {
@@ -563,7 +563,7 @@ function initVirtualScroll() {
 
     // 确保 handleResize 在正确的作用域内
     const boundHandleResize = handleResize.bind(this);
-    resizeObserver = new ResizeObserver(_.debounce(boundHandleResize, 100));
+    resizeObserver = new ResizeObserver(debounce({ delay: 100 }, boundHandleResize));
     resizeObserver.observe(bookmarksList);
   }
 
@@ -6163,10 +6163,10 @@ function initScrollIndicator() {
   
   // 初始检查和窗口大小变化时重新检查
   checkScrollable();
-  window.addEventListener('resize', _.debounce(checkScrollable, 200));
+  window.addEventListener('resize', debounce({ delay: 200 }, checkScrollable));
   
   // 当书签列表内容变化时重新检查
-  const observer = new MutationObserver(_.debounce(checkScrollable, 200));
+  const observer = new MutationObserver(debounce({ delay: 200 }, checkScrollable));
   observer.observe(bookmarksList, { childList: true, subtree: true });
   
   // 点击指示器滚动到下一屏

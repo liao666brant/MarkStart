@@ -12,7 +12,7 @@ export default defineConfig({
         { src: 'manifest.json', dest: '.' },
         { src: '_locales/**/*', dest: '.' },
         { src: 'images/**/*', dest: '.' },
-        { src: 'src/**/*', dest: '.' },
+        { src: 'src/background.js', dest: '.' },
       ],
     }),
   ],

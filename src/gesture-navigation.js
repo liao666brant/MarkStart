@@ -1,3 +1,5 @@
+import { throttle } from 'radashi';
+
 // 平台检测
 const isWindows = navigator.platform.includes('Win');
 const isMac = navigator.platform.includes('Mac');
@@ -132,7 +134,7 @@ function createWheelHandler(navigateToParent) {
   let accumulatedDeltaX = 0;
   let lastWheelTime = 0;
 
-  return _.throttle(function(e) {
+  return throttle({ interval: 200, trailing: false }, function(e) {
     const currentTime = Date.now();
     
     if (currentTime - lastNavigationTime < NAVIGATION_COOLDOWN) {
@@ -164,9 +166,6 @@ function createWheelHandler(navigateToParent) {
         accumulatedDeltaX = 0;
       }
     }
-  }, 200, { // 进一步增加节流时间
-    trailing: false,
-    leading: true
   });
 }
 
@@ -222,4 +221,4 @@ function initGestureNavigation(updateDisplay) {
 
 export {
   initGestureNavigation
-}; 
+};

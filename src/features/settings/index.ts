@@ -1,5 +1,5 @@
 // 导入所需的依赖
-import { ICONS } from './icons';
+import { ICONS } from '../../shared/icons';
 
 type Dimension = string | number;
 

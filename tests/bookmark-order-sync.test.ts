@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { refreshBookmarkOrder } from '../src/bookmark-order-sync'
+import { refreshBookmarkOrder } from '../src/features/bookmarks/order-sync'
 
 test('refreshes changed bookmark order through the supplied renderer', () => {
   const rendered: { id: string; children: readonly { id: string }[] }[] = []

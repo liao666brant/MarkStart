@@ -1,13 +1,22 @@
 // allow: SIZE_OK — legacy main-page state machine; this task is a mechanical TypeScript migration only.
-import { featureTips } from './feature-tips';
+import { featureTips } from '../onboarding/feature-tips';
 import { debounce, throttle } from 'radashi';
 import QRCode from 'qrcode';
 import Sortable from 'sortablejs';
-import { getBookmarksBarId } from './bookmark-root';
+import { getBookmarksBarId } from './root';
 import { pruneDefaultFolders } from './default-folders';
 import { initGestureNavigation } from './gesture-navigation';
-import { getIconHtml, ICONS, replaceIconsWithSvg } from './icons';
-import { refreshBookmarkOrder } from './bookmark-order-sync';
+import {
+  getBooleanProperty,
+  getDefaultFolders,
+  getNumberProperty,
+  getOpenMultipleTabsResponse,
+  isBookmarkColors,
+  isUnknownRecord,
+} from './page-parsers';
+import type { BookmarkColors } from './page-parsers';
+import { getIconHtml, ICONS, replaceIconsWithSvg } from '../../shared/icons';
+import { refreshBookmarkOrder } from './order-sync';
 import { 
   SearchEngineManager, 
   updateSearchEngineIcon,
@@ -15,13 +24,9 @@ import {
   createSearchEngineDropdown, 
   initializeSearchEngineDialog,
   createTemporarySearchTabs
-} from './search-engine-dropdown';
+} from '../search/dropdown';
 
 type BookmarkNode = chrome.bookmarks.BookmarkTreeNode;
-type BookmarkColors = {
-  readonly primary: readonly number[];
-  readonly secondary: readonly number[];
-};
 type ColorCacheEntry = {
   readonly colors: BookmarkColors;
   readonly url: string;
@@ -56,21 +61,10 @@ type SearchBehavior = {
   lastUsed: number;
 };
 type SearchBehaviorMap = Record<string, SearchBehavior>;
-type DefaultFolder = {
-  readonly id: string;
-  readonly folderId?: string;
-  readonly name: string;
-  readonly order: number;
-};
 type BookmarkDisplay = {
   readonly id: string;
   readonly children?: readonly BookmarkNode[];
 };
-type OpenMultipleTabsResponse = {
-  readonly success: boolean;
-  readonly error?: string;
-};
-
 declare global {
   interface Window {
     updateBookmarksDisplay(parentId: string, movedItemId?: string, newIndex?: number): Promise<void>;
@@ -81,30 +75,6 @@ declare global {
 declare function deleteQuickLink(quickLink: CurrentBookmark): void;
 declare function updateContainerHeight(): void;
 declare function updateSpecificBookmarkCard(bookmarkId: string, newTitle: string, newUrl: string): void;
-
-function isUnknownRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function getNumberProperty(value: unknown, key: string): number | undefined {
-  if (!isUnknownRecord(value)) return undefined;
-  const property = value[key];
-  return typeof property === 'number' && Number.isFinite(property) ? property : undefined;
-}
-
-function getBooleanProperty(value: unknown, key: string): boolean | undefined {
-  if (!isUnknownRecord(value)) return undefined;
-  const property = value[key];
-  return typeof property === 'boolean' ? property : undefined;
-}
-
-function getOpenMultipleTabsResponse(value: unknown): OpenMultipleTabsResponse | null {
-  if (!isUnknownRecord(value) || typeof value['success'] !== 'boolean') return null;
-  const error = value['error'];
-  return typeof error === 'string'
-    ? { success: value['success'], error }
-    : { success: value['success'] };
-}
 
 type ElementConstructor<T extends Element> = new () => T;
 
@@ -117,21 +87,6 @@ function requireElement<T extends Element>(
     throw new TypeError(`Missing or invalid ${description}`);
   }
   return element;
-}
-
-function isBookmarkColors(value: unknown): value is BookmarkColors {
-  if (typeof value !== 'object' || value === null || !('primary' in value) || !('secondary' in value)) return false;
-  return Array.isArray(value.primary) && value.primary.every(color => typeof color === 'number') &&
-    Array.isArray(value.secondary) && value.secondary.every(color => typeof color === 'number');
-}
-
-function getDefaultFolders(value: unknown): DefaultFolder[] {
-  if (typeof value !== 'object' || value === null || !('items' in value) || !Array.isArray(value.items)) return [];
-  return value.items.filter((item): item is DefaultFolder =>
-    typeof item === 'object' && item !== null &&
-    'id' in item && typeof item.id === 'string' &&
-    'name' in item && typeof item.name === 'string' &&
-    'order' in item && typeof item.order === 'number');
 }
 
 let bookmarkTreeNodes: BookmarkNode[] = [];

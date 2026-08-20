@@ -34,7 +34,7 @@ declare global {
 document.addEventListener('DOMContentLoaded', () => {
     // 检查 WelcomeManager 是否已经加载
     if (!window.WelcomeManager) {
-        console.error('WelcomeManager not found. Make sure welcome.ts is loaded before wallpaper.ts');
+        console.error('WelcomeManager not found. Make sure the onboarding module loads before the wallpaper module');
     }
     new WallpaperManager();
 });

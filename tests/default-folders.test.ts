@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { pruneDefaultFolders } from '../src/default-folders'
+import { pruneDefaultFolders } from '../src/features/bookmarks/default-folders'
 
 test('removes deleted folders from the persisted defaults', async () => {
   const writes: { defaultFolders: { items: readonly { id: string; name: string; order: number }[] } }[] = []

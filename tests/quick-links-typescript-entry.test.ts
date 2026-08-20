@@ -6,7 +6,7 @@ const projectUrl = new URL('../', import.meta.url)
 
 test('quick links runtime uses the TypeScript page entry', async () => {
   // Given: quick links is required to be owned by a TypeScript module.
-  const quickLinksUrl = new URL('src/quick-links.ts', projectUrl)
+  const quickLinksUrl = new URL('src/features/quick-links/index.ts', projectUrl)
 
   // When: the source entry and page manifest are inspected.
   await access(quickLinksUrl)
@@ -17,6 +17,6 @@ test('quick links runtime uses the TypeScript page entry', async () => {
 
   // Then: Vite consumes the TypeScript entry and no legacy entry remains.
   assert.match(indexHtml, /src="main\.ts"/)
-  assert.match(main, /import '\.\/quick-links'/)
+  assert.match(main, /import '\.\/features\/quick-links'/)
   assert.doesNotMatch(`${indexHtml}\n${main}`, /quick-links\.js/)
 })

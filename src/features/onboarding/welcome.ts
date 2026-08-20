@@ -1,5 +1,5 @@
-import { getLocalizedMessage } from './localization'
-import type { WelcomeManagerContract } from './types'
+import { getLocalizedMessage } from '../../shared/localization'
+import type { WelcomeManagerContract } from '../../shared/types'
 
 type ColorCache = {
   lastBackground: string | null

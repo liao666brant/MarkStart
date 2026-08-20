@@ -20,15 +20,16 @@ test('loads the page through one ordered TypeScript entry', async () => {
     (match) => match[1],
   )
   assert.deepEqual(orderedImports, [
-    'localization',
-    'welcome',
-    'script',
-    'wallpaper',
-    'icons',
-    'feature-tips',
-    'settings',
-    'search-engine-dropdown',
-    'quick-links',
-    'progress',
+    'shared/localization',
+    'features/onboarding/welcome',
+    'features/bookmarks/page',
+    'features/wallpaper',
+    'shared/icons',
+    'features/onboarding/feature-tips',
+    'features/settings',
+    'features/search/dropdown',
+    'features/quick-links',
+    'features/progress',
   ])
+
 })

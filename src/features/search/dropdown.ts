@@ -1,6 +1,6 @@
 // 导入所需的依赖
-import { getIconHtml } from './icons';
-import { getLocalizedMessage } from './localization';
+import { getIconHtml } from '../../shared/icons';
+import { getLocalizedMessage } from '../../shared/localization';
 
 type SearchEngine = {
   readonly name: string;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { getBookmarksBarId } from '../src/bookmark-root'
+import { getBookmarksBarId } from '../src/features/bookmarks/root'
 
 test('uses the first bookmark folder when the legacy ID 1 is absent', async () => {
   const bookmarks: Parameters<typeof getBookmarksBarId>[0] = {

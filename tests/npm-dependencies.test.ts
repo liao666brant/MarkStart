@@ -11,8 +11,8 @@ test('bundles runtime libraries from npm instead of vendored minified files', as
     readProjectFile('package.json'),
     readProjectFile('src/index.html'),
     readProjectFile('vite.config.mts'),
-    readProjectFile('src/script.ts'),
-    readProjectFile('src/gesture-navigation.ts'),
+    readProjectFile('src/features/bookmarks/page.ts'),
+    readProjectFile('src/features/bookmarks/gesture-navigation.ts'),
   ])
   const packageData: unknown = JSON.parse(packageJson)
   assert.ok(typeof packageData === 'object' && packageData !== null)

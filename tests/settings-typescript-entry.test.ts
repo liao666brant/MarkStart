@@ -6,7 +6,7 @@ const projectUrl = new URL('../', import.meta.url)
 
 test('settings runtime uses the TypeScript page entry', async () => {
   // Given: settings is required to be owned by a TypeScript module.
-  const settingsUrl = new URL('src/settings.ts', projectUrl)
+  const settingsUrl = new URL('src/features/settings/index.ts', projectUrl)
 
   // When: the source entry and page manifest are inspected.
   await access(settingsUrl)
@@ -17,6 +17,6 @@ test('settings runtime uses the TypeScript page entry', async () => {
 
   // Then: Vite consumes the TypeScript entry and no legacy settings entry remains.
   assert.match(indexHtml, /src="main\.ts"/)
-  assert.match(main, /import '\.\/settings'/)
+  assert.match(main, /import '\.\/features\/settings'/)
   assert.doesNotMatch(`${indexHtml}\n${main}`, /settings\.js/)
 })

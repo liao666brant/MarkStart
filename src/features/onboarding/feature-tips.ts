@@ -1,4 +1,4 @@
-import { ICONS } from './icons';
+import { ICONS } from '../../shared/icons';
 
 type FeatureTip = {
     readonly featureKey: string;

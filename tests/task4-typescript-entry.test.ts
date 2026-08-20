@@ -6,15 +6,19 @@ const projectUrl = new URL('../', import.meta.url)
 
 test('task 4 modules use TypeScript entries while preserving icon output', async () => {
   // Given: the three UI foundation modules are expected to be TypeScript-owned.
-  const moduleNames = ['icons', 'feature-tips', 'gesture-navigation'] as const
+  const modulePaths = [
+    'shared/icons',
+    'features/onboarding/feature-tips',
+    'features/bookmarks/gesture-navigation',
+  ] as const
 
   // When: their runtime entrypoints and the page imports are inspected.
-  await Promise.all(moduleNames.map((name) => access(new URL(`src/${name}.ts`, projectUrl))))
+  await Promise.all(modulePaths.map((path) => access(new URL(`src/${path}.ts`, projectUrl))))
   const [indexHtml, main, script, iconsModule] = await Promise.all([
     readFile(new URL('src/index.html', projectUrl), 'utf8'),
     readFile(new URL('src/main.ts', projectUrl), 'utf8'),
-    readFile(new URL('src/script.ts', projectUrl), 'utf8'),
-    import('../src/icons'),
+    readFile(new URL('src/features/bookmarks/page.ts', projectUrl), 'utf8'),
+    import('../src/shared/icons'),
   ])
 
   // Then: runtime references resolve to TypeScript and icon rendering stays observable.
@@ -22,8 +26,8 @@ test('task 4 modules use TypeScript entries while preserving icon output', async
     `${indexHtml}\n${main}\n${script}`,
     /(?:icons|feature-tips|gesture-navigation)\.js/,
   )
-  assert.match(main, /import '\.\/icons'/)
-  assert.match(main, /import '\.\/feature-tips'/)
+  assert.match(main, /import '\.\/shared\/icons'/)
+  assert.match(main, /import '\.\/features\/onboarding\/feature-tips'/)
   assert.match(script, /from '\.\/gesture-navigation'/)
   assert.match(iconsModule.getIconHtml('settings'), /^<span class="icon-svg"><svg/)
   assert.equal(

@@ -2,22 +2,22 @@ type BookmarkNode = {
   readonly id: string
 }
 
-type BookmarkCache = {
-  readonly get: (parentId: string) => { readonly bookmarks: readonly BookmarkNode[] } | null | undefined
-  readonly set: (parentId: string, bookmarks: readonly BookmarkNode[]) => void
+type BookmarkCache<T extends BookmarkNode> = {
+  readonly get: (parentId: string) => { readonly bookmarks: readonly T[] } | null | undefined
+  readonly set: (parentId: string, bookmarks: readonly T[]) => void
 }
 
-type BookmarksChildrenApi = {
-  readonly getChildren: (parentId: string, callback: (bookmarks: readonly BookmarkNode[]) => void) => void
+type BookmarksChildrenApi<T extends BookmarkNode> = {
+  readonly getChildren: (parentId: string, callback: (bookmarks: readonly T[]) => void) => void
 }
 
-type RenderBookmarks = (bookmarks: readonly BookmarkNode[]) => void
+type RenderBookmarks<T extends BookmarkNode> = (bookmarks: readonly T[]) => void
 
-export function refreshBookmarkOrder(
-  bookmarksApi: BookmarksChildrenApi,
-  cache: BookmarkCache,
+export function refreshBookmarkOrder<T extends BookmarkNode>(
+  bookmarksApi: BookmarksChildrenApi<T>,
+  cache: BookmarkCache<T>,
   parentId: string,
-  renderBookmarks: RenderBookmarks,
+  renderBookmarks: RenderBookmarks<T>,
 ): void {
   const cached = cache.get(parentId)
   if (!cached) return

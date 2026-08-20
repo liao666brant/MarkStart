@@ -74,7 +74,6 @@ declare global {
 
 declare function deleteQuickLink(quickLink: CurrentBookmark): void;
 declare function updateContainerHeight(): void;
-declare function updateSpecificBookmarkCard(bookmarkId: string, newTitle: string, newUrl: string): void;
 
 type ElementConstructor<T extends Element> = new () => T;
 
@@ -275,6 +274,36 @@ function openEditDialog(bookmark: CurrentBookmark) {
   closeButton.addEventListener('click', function () {
     editDialog.style.display = 'none';
   });
+}
+
+function updateSpecificBookmarkCard(bookmarkId: string, newTitle: string, newUrl: string) {
+  const bookmarkCard = document.querySelector<HTMLElement>(`.bookmark-card[data-id="${CSS.escape(bookmarkId)}"]`);
+  if (!bookmarkCard) return;
+
+  if (bookmarkCard instanceof HTMLAnchorElement) {
+    bookmarkCard.href = newUrl;
+  }
+
+  const title = bookmarkCard.querySelector<HTMLElement>('.card-title');
+  if (title) {
+    title.textContent = newTitle;
+  }
+
+  const image = bookmarkCard.querySelector<HTMLImageElement>('img');
+  if (!image) return;
+
+  localStorage.removeItem(`bookmark-colors-${bookmarkId}`);
+  image.src = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(newUrl)}&size=32&t=${Date.now()}`;
+  image.onload = () => {
+    const colors = getColors(image);
+    applyColors(bookmarkCard, colors);
+    localStorage.setItem(`bookmark-colors-${bookmarkId}`, JSON.stringify(colors));
+  };
+  image.onerror = () => {
+    const colors = { primary: [200, 200, 200], secondary: [220, 220, 220] };
+    applyColors(bookmarkCard, colors);
+    localStorage.setItem(`bookmark-colors-${bookmarkId}`, JSON.stringify(colors));
+  };
 }
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -2937,19 +2966,8 @@ let bookmarkOrderCache: Record<string, string[]> = {};
 
 // 添加一函数来同步本地缓存和 Chrome 书签
 function syncBookmarkOrder(parentId: string) {
-  const resolveCachedBookmarks = (cacheParentId: string, bookmarks: readonly { readonly id: string }[]): BookmarkNode[] => {
-    const cachedBookmarks = bookmarksCache.get(cacheParentId)?.bookmarks ?? [];
-    const cachedById = new Map(cachedBookmarks.map(bookmark => [bookmark.id, bookmark]));
-    return bookmarks
-      .map(bookmark => cachedById.get(bookmark.id))
-      .filter((bookmark): bookmark is BookmarkNode => bookmark !== undefined);
-  };
-  const cacheAdapter: Parameters<typeof refreshBookmarkOrder>[1] = {
-    get: cacheParentId => bookmarksCache.get(cacheParentId),
-    set: (cacheParentId, bookmarks) => bookmarksCache.set(cacheParentId, resolveCachedBookmarks(cacheParentId, bookmarks)),
-  };
-  refreshBookmarkOrder(chrome.bookmarks, cacheAdapter, parentId, (bookmarks) => {
-    displayBookmarks({ id: parentId, children: resolveCachedBookmarks(parentId, bookmarks) });
+  refreshBookmarkOrder(chrome.bookmarks, bookmarksCache, parentId, (bookmarks) => {
+    displayBookmarks({ id: parentId, children: bookmarks });
   });
 }
 

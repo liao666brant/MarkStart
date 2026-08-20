@@ -8,7 +8,7 @@
 
 ## 入口与对外接口
 
-- `src/main.ts` 加载 `dropdown.ts`；书签页面也导入其 `SearchEngineManager` 和 UI helper。
+- `src/main.ts` 加载 `dropdown.ts`；书签页面调用 `interactions.ts` 初始化搜索输入、建议和跨引擎搜索。
 - 对外导出包括 `SearchEngineManager`、`createSearchEngineDropdown`、`initializeSearchEngineDialog`、`createTemporarySearchTabs` 与图标 helper。
 
 ## 关键依赖与数据
@@ -22,11 +22,12 @@
 
 ## 常见问题
 
-- `dropdown.ts` 是当前搜索模块唯一入口；CSS 类名 `search-engine-dropdown` 不是文件路径，不要随文件重命名而改动。
+- `dropdown.ts` 管理引擎选择，`interactions.ts` 管理页面搜索交互；CSS 类名 `search-engine-dropdown` 不是文件路径，不要随文件重命名而改动。
 
 ## 相关文件清单
 
 - `dropdown.ts`
+- `interactions.ts`
 - `../bookmarks/page.ts`、`../../main.ts`、`../../index.html`
 
 ## 变更记录

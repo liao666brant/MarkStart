@@ -214,6 +214,8 @@ class SettingsManager {
   openSettingsSidebar(): void {
     if (this.settingsSidebar) {
       this.settingsSidebar.classList.add('open');
+      document.getElementById('settings-overlay')?.classList.add('open');
+      document.body.style.overflow = 'hidden';
     }
   }
   
@@ -221,6 +223,8 @@ class SettingsManager {
   closeSettingsSidebar(): void {
     if (this.settingsSidebar) {
       this.settingsSidebar.classList.remove('open');
+      document.getElementById('settings-overlay')?.classList.remove('open');
+      document.body.style.overflow = '';
     }
   }
 
@@ -875,3 +879,5 @@ class SettingsManager {
 
 // 导出设置管理器实例
 export const settingsManager = new SettingsManager();
+
+document.addEventListener('markstart:open-settings', () => settingsManager.openSettingsSidebar());

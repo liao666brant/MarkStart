@@ -16,7 +16,8 @@ import {
 } from './page-parsers';
 import type { BookmarkColors } from './page-parsers';
 import { getIconHtml, ICONS, replaceIconsWithSvg } from '../../shared/icons';
-import { refreshBookmarkOrder } from './order-sync';
+import { updateBookmarkCard } from './card-update';
+import { refreshBookmarkOrder, startPeriodicBookmarkSync } from './order-sync';
 import { 
   SearchEngineManager, 
   updateSearchEngineIcon,
@@ -258,10 +259,16 @@ function openEditDialog(bookmark: CurrentBookmark) {
     const newTitle = editNameInput.value;
     const newUrl = editUrlInput.value;
     chrome.bookmarks.update(bookmarkId, { title: newTitle, url: newUrl }, function () {
+      if (chrome.runtime.lastError) {
+        console.error('Error updating bookmark:', chrome.runtime.lastError);
+        return;
+      }
       editDialog.style.display = 'none';
 
-      // 更新特定的书签卡片
-      updateSpecificBookmarkCard(bookmarkId, newTitle, newUrl);
+      if ('parentId' in bookmark) {
+        bookmarksCache.delete(bookmark.parentId);
+      }
+      updateBookmarkCard(bookmarkId, newTitle, newUrl, { getColors, applyColors });
     });
   };
 
@@ -274,36 +281,6 @@ function openEditDialog(bookmark: CurrentBookmark) {
   closeButton.addEventListener('click', function () {
     editDialog.style.display = 'none';
   });
-}
-
-function updateSpecificBookmarkCard(bookmarkId: string, newTitle: string, newUrl: string) {
-  const bookmarkCard = document.querySelector<HTMLElement>(`.bookmark-card[data-id="${CSS.escape(bookmarkId)}"]`);
-  if (!bookmarkCard) return;
-
-  if (bookmarkCard instanceof HTMLAnchorElement) {
-    bookmarkCard.href = newUrl;
-  }
-
-  const title = bookmarkCard.querySelector<HTMLElement>('.card-title');
-  if (title) {
-    title.textContent = newTitle;
-  }
-
-  const image = bookmarkCard.querySelector<HTMLImageElement>('img');
-  if (!image) return;
-
-  localStorage.removeItem(`bookmark-colors-${bookmarkId}`);
-  image.src = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(newUrl)}&size=32&t=${Date.now()}`;
-  image.onload = () => {
-    const colors = getColors(image);
-    applyColors(bookmarkCard, colors);
-    localStorage.setItem(`bookmark-colors-${bookmarkId}`, JSON.stringify(colors));
-  };
-  image.onerror = () => {
-    const colors = { primary: [200, 200, 200], secondary: [220, 220, 220] };
-    applyColors(bookmarkCard, colors);
-    localStorage.setItem(`bookmark-colors-${bookmarkId}`, JSON.stringify(colors));
-  };
 }
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -2973,17 +2950,11 @@ function syncBookmarkOrder(parentId: string) {
 
 // 添加一个定期同步函数
 function startPeriodicSync() {
-  setInterval(() => {
-      const bookmarksList = document.getElementById('bookmarks-list');
-      if (bookmarksList && bookmarksList.dataset["parentId"]) {
-      const currentParentId = bookmarksList.dataset["parentId"];
-      try {
-        syncBookmarkOrder(currentParentId);
-      } catch (error) {
-        console.error('Error during bookmark sync:', error instanceof Error ? error : String(error));
-      }
-    }
-  }, 30000); // 每30秒同步一次
+  startPeriodicBookmarkSync(
+    () => document.getElementById('bookmarks-list')?.dataset["parentId"],
+    syncBookmarkOrder,
+    (error) => console.error('Error during bookmark sync:', error instanceof Error ? error : String(error)),
+  );
 }
 
 let isRequestPending = false;

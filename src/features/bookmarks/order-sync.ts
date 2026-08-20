@@ -13,6 +13,10 @@ type BookmarksChildrenApi<T extends BookmarkNode> = {
 
 type RenderBookmarks<T extends BookmarkNode> = (bookmarks: readonly T[]) => void
 
+type PeriodicSync = (parentId: string) => void
+type CurrentParentId = () => string | undefined
+type SyncErrorHandler = (error: unknown) => void
+
 export function refreshBookmarkOrder<T extends BookmarkNode>(
   bookmarksApi: BookmarksChildrenApi<T>,
   cache: BookmarkCache<T>,
@@ -20,15 +24,28 @@ export function refreshBookmarkOrder<T extends BookmarkNode>(
   renderBookmarks: RenderBookmarks<T>,
 ): void {
   const cached = cache.get(parentId)
-  if (!cached) return
 
   bookmarksApi.getChildren(parentId, (bookmarks) => {
-    const chromeOrder = bookmarks.map((bookmark) => bookmark.id)
-    const cachedOrder = cached.bookmarks.map((bookmark) => bookmark.id)
-
-    if (JSON.stringify(chromeOrder) !== JSON.stringify(cachedOrder)) {
+    if (cached === null || cached === undefined || JSON.stringify(bookmarks) !== JSON.stringify(cached.bookmarks)) {
       cache.set(parentId, bookmarks)
       renderBookmarks(bookmarks)
     }
   })
+}
+
+export function startPeriodicBookmarkSync(
+  getCurrentParentId: CurrentParentId,
+  sync: PeriodicSync,
+  handleError: SyncErrorHandler,
+): void {
+  setInterval(() => {
+    const parentId = getCurrentParentId()
+    if (!parentId) return
+
+    try {
+      sync(parentId)
+    } catch (error) {
+      handleError(error instanceof Error ? error : new Error(String(error)))
+    }
+  }, 30_000)
 }

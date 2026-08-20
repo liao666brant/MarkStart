@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "index-project": {
+      "source": "liao666brant/skills",
+      "sourceType": "github",
+      "skillPath": "skills/index-project/SKILL.md",
+      "computedHash": "e7ddca4181d7c930e5a1b786fe39c4af7b85fddd5e6e07bc25b62085aa8c755f"
+    }
+  }
+}

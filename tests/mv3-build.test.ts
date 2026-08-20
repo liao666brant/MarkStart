@@ -10,7 +10,7 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 test('builds the MV3 service worker from TypeScript when producing the extension', (context) => {
   // Given: the checked-in extension sources and a clean production build invocation.
-  const outputDirectory = mkdtempSync(join(tmpdir(), 'tabmark-mv3-build-'))
+  const outputDirectory = mkdtempSync(join(tmpdir(), 'markstart-mv3-build-'))
   context.after(() => rmSync(outputDirectory, { recursive: true, force: true }))
   execFileSync(
     process.execPath,

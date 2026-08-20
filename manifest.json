@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "TabMark-Bookmark New Tab",
+  "name": "MarkStart",
   "version": "1.245",
   "description": "__MSG_extDescription__",
   "default_locale": "en",

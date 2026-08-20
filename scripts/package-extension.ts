@@ -20,7 +20,7 @@ if (
 const outputPath = resolve(
   projectRoot,
   'release',
-  `TabMark-Bookmark-New-Tab-${manifestData.version}.zip`,
+  `MarkStart-${manifestData.version}.zip`,
 )
 
 await mkdir(dirname(outputPath), { recursive: true })

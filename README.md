@@ -1,16 +1,8 @@
-# TabMark-你的书签,值得被重新看见
+# MarkStart · 你的书签，值得被重新看见
 
-## 项目网站: www.ainewtab.app
-
-TabMark 将收藏夹变成新标签页，让你收藏的书签一目了然、整洁高效，快速直达你最需要的网站和资源。搭配智能 AI 搜索，更快找到你想要的答案。支持 Chrome 和 Edge。
+MarkStart 将收藏夹变成新标签页，让你收藏的书签一目了然、整洁高效，快速直达你最需要的网站和资源。搭配智能 AI 搜索，更快找到你想要的答案。支持 Chrome 和 Edge。
 
 ![MacBook Air 13_ - 5@1x](https://github.com/user-attachments/assets/bb4f9996-902c-4b69-8a7f-4c2b2e219ffc)
-
-## 请注意由于chrome 商店新的条款要求，拓展不允许同时修改新标签页和搜索功能，故chrome 商店版本暂时无法更新
-
-- chrome 商店版本：1.243（实际为 1.241 版本，为 1.242 版本回滚）
-- Edge版本：1.245 审核中
-- GitHub 版本：1.245
 
 ## 开发与打包
 
@@ -18,7 +10,7 @@ TabMark 将收藏夹变成新标签页，让你收藏的书签一目了然、整
 
 - `npm run dev`：使用 Vite 8 监听构建，Chrome/Edge 在“加载已解压的扩展程序”中选择 `dist/`。
 - `npm run build`：生成可加载的 MV3 扩展目录 `dist/`。
-- `npm run package`：构建后生成 `release/TabMark-Bookmark-New-Tab-1.245.zip`。
+- `npm run package`：构建后生成 `release/MarkStart-1.245.zip`。
 - `npm run typecheck`：使用 TypeScript 7 严格检查 `src/`、`tests/`、`scripts/` 和 Vite 配置。
 
 页面通过 `src/main.ts` 单一模块入口按既有初始化顺序加载各功能模块；Manifest 对外路径仍为 `src/index.html` 和 `src/background.js`。Vite 负责将 TypeScript 与 npm 依赖打包、压缩到 `dist/`，发布包不包含 TypeScript 源文件。
@@ -38,13 +30,6 @@ TabMark 将收藏夹变成新标签页，让你收藏的书签一目了然、整
 **浏览器功能快捷方式**：展示浏览器历史记录、下载、密码管理、拓展管理的快捷链接；
 
 
-### 使用教程
-https://cooing-loganberry-b74.notion.site/TabMark-Bookmark-New-Tab-7a083a74f84e4bb48345e389c1e53717
+## 致谢
 
-### 反馈建议
-
-**微信交流群**
-
-<img src="https://raw.githubusercontent.com/Alanrk/blogimg/main/IMG_4528.JPG" width="300" />
-
-邮箱：hello@ainewtab.app
+感谢 [Alanrk/TabMark-Bookmark-New-Tab](https://github.com/Alanrk/TabMark-Bookmark-New-Tab) 的原始项目与贡献。

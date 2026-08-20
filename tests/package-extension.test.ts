@@ -11,7 +11,7 @@ const projectRoot = resolve(import.meta.dirname, '..')
 
 test('packages the built extension into a non-empty ZIP archive', async (context) => {
   // Given: an isolated project with the real package command and dependencies.
-  const fixtureRoot = await mkdtemp(join(tmpdir(), 'tabmark-package-test-'))
+  const fixtureRoot = await mkdtemp(join(tmpdir(), 'markstart-package-test-'))
   context.after(() => rm(fixtureRoot, { recursive: true, force: true }))
   await Promise.all([
     cp(resolve(projectRoot, 'package.json'), resolve(fixtureRoot, 'package.json')),
@@ -29,7 +29,7 @@ test('packages the built extension into a non-empty ZIP archive', async (context
   const archivePath = resolve(
     fixtureRoot,
     'release',
-    `TabMark-Bookmark-New-Tab-${versionMatch[1]}.zip`,
+    `MarkStart-${versionMatch[1]}.zip`,
   )
 
   // When: npm runs the declared build-and-package workflow inside the isolated project.

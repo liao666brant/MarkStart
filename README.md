@@ -19,9 +19,9 @@ TabMark 将收藏夹变成新标签页，让你收藏的书签一目了然、整
 - `npm run dev`：使用 Vite 8 监听构建，Chrome/Edge 在“加载已解压的扩展程序”中选择 `dist/`。
 - `npm run build`：生成可加载的 MV3 扩展目录 `dist/`。
 - `npm run package`：构建后生成 `release/TabMark-Bookmark-New-Tab-1.245.zip`。
-- `npm run typecheck`：使用 TypeScript 7 检查 Vite 配置。
+- `npm run typecheck`：使用 TypeScript 7 严格检查 `src/`、`tests/`、`scripts/` 和 Vite 配置。
 
-现有扩展的经典脚本加载顺序和 Manifest 路径会原样保留；Vite 负责监听、输出和打包，避免改变已发布扩展的运行行为。
+页面通过 `src/main.ts` 单一模块入口按既有初始化顺序加载各功能模块；Manifest 对外路径仍为 `src/index.html` 和 `src/background.js`。Vite 负责将 TypeScript 与 npm 依赖打包、压缩到 `dist/`，发布包不包含 TypeScript 源文件。
 
 ## 主要功能
 

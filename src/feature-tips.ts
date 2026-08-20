@@ -1,7 +1,25 @@
-import { ICONS } from './icons.js';
+import { ICONS } from './icons';
+
+type FeatureTip = {
+    readonly featureKey: string;
+    readonly storageKey: string;
+};
 
 // 新功能提示管理类
+// allow: SIZE_OK — 本任务仅迁移既有提示状态机，结构拆分会扩大行为变更面。
 class FeatureTips {
+    private readonly fadeOutDuration: number;
+    private readonly tipQueue: FeatureTip[];
+    private isShowingTip: boolean;
+    private tipsInitialized: boolean;
+    private isProcessing: boolean;
+    private checkTimeout: ReturnType<typeof setTimeout> | null;
+    private hasCheckedSettingsTip: boolean;
+    private domReady: boolean;
+    private pageLoaded: boolean;
+    private initStarted: boolean;
+    private currentVersion: string;
+
     constructor() {
         this.fadeOutDuration = 300; // 淡出动画时长(毫秒)
         this.tipQueue = []; // 提示队列，用于顺序显示提示
@@ -13,6 +31,7 @@ class FeatureTips {
         this.domReady = false; // 标记DOM是否已准备好
         this.pageLoaded = false; // 标记页面是否已完全加载
         this.initStarted = false; // 标记初始化是否已开始
+        this.currentVersion = chrome.runtime.getManifest().version;
 
         // 立即隐藏所有提示，防止闪烁
         this.hideAllTipsImmediately();
@@ -37,16 +56,16 @@ class FeatureTips {
     }
 
     // 开始初始化流程
-    startInit() {
+    private startInit(): void {
         if (this.initStarted || !this.domReady || !this.pageLoaded) {
             return;
         }
         this.initStarted = true;
-        this.init();
+        void this.init();
     }
 
     // 立即隐藏所有提示
-    hideAllTipsImmediately() {
+    private hideAllTipsImmediately(): void {
         // 使用 style 标签立即隐藏提示，避免 CSS 加载延迟导致的闪烁
         const style = document.createElement('style');
         style.textContent = `
@@ -67,7 +86,7 @@ class FeatureTips {
     }
 
     // 重置提示样式
-    resetTipStyle(tipContainer) {
+    private resetTipStyle(tipContainer: HTMLElement): void {
         // 移除内联样式和之前添加的类
         tipContainer.style.cssText = '';
         tipContainer.classList.remove('tip-fade-out');
@@ -88,7 +107,7 @@ class FeatureTips {
     }
 
     // 初始化
-    async init() {
+    private async init(): Promise<void> {
         try {
             // 获取当前版本号
             this.currentVersion = await this.getExtensionVersion();
@@ -101,19 +120,19 @@ class FeatureTips {
             setTimeout(() => {
                 this.processNextTip();
             }, 1000);
-        } catch (error) {
+        } catch (error) { // no-excuse-ok: catch — top-level UI initialization boundary
             console.error('[FeatureTips] 初始化错误:', error);
         }
     }
 
     // 获取扩展版本号
-    async getExtensionVersion() {
+    private async getExtensionVersion(): Promise<string> {
         const manifest = chrome.runtime.getManifest();
         return manifest.version;
     }
 
     // 检查版本更新
-    async checkVersionUpdate() {
+    private async checkVersionUpdate(): Promise<void> {
         const lastVersion = localStorage.getItem('lastVersion');
         console.log('[FeatureTips] 当前版本:', this.currentVersion, '上一版本:', lastVersion);
 
@@ -133,30 +152,32 @@ class FeatureTips {
     }
 
     // 比较版本号
-    isNewerVersion(current, last) {
+    private isNewerVersion(current: string, last: string | null): boolean {
         if (!last) return true;
 
         const currentParts = current.split('.').map(Number);
         const lastParts = last.split('.').map(Number);
 
         for (let i = 0; i < currentParts.length; i++) {
-            if (currentParts[i] > (lastParts[i] || 0)) return true;
-            if (currentParts[i] < (lastParts[i] || 0)) return false;
+            const currentPart = currentParts[i] ?? 0;
+            const lastPart = lastParts[i] ?? 0;
+            if (currentPart > lastPart) return true;
+            if (currentPart < lastPart) return false;
         }
         return false;
     }
 
     // 获取版本之间的新功能
-    getVersionFeatures(lastVersion, currentVersion) {
+    private getVersionFeatures(lastVersion: string | null, currentVersion: string): readonly string[] {
         // 版本功能映射表
-        const versionFeatures = {
+        const versionFeatures: Readonly<Record<string, readonly string[]>> = {
             '1.241': ['searchEngineUpdate'],
             '1.243': ['customTab'],
             '1.244': ['shortcuts'],
             '1.245': ['searchSuggestions'],
         };
 
-        const features = [];
+        const features: string[] = [];
 
         // 如果是新安装（lastVersion 为 null），只显示当前版本的功能
         if (!lastVersion) {
@@ -176,7 +197,7 @@ class FeatureTips {
     }
 
     // 将提示添加到队列
-    queueShowTips(featureKey) {
+    private queueShowTips(featureKey: string): void {
         const storageKey = `hasShown${featureKey}Tips`;
         const hasShownTips = localStorage.getItem(storageKey);
 
@@ -191,7 +212,7 @@ class FeatureTips {
     }
 
     // 处理队列中的下一个提示
-    processNextTip() {
+    private processNextTip(): void {
         // 如果正在处理中或已经检查过所有提示，直接返回
         if (this.isProcessing || (this.hasCheckedSettingsTip)) {
             return;
@@ -210,7 +231,12 @@ class FeatureTips {
         }
 
         this.isProcessing = true;
-        const { featureKey, storageKey } = this.tipQueue.shift();
+        const nextTip = this.tipQueue.shift();
+        if (nextTip === undefined) {
+            this.isProcessing = false;
+            return;
+        }
+        const { featureKey, storageKey } = nextTip;
         this.isShowingTip = true;
         
         requestAnimationFrame(() => {
@@ -220,7 +246,7 @@ class FeatureTips {
     }
 
     // 检查是否需要显示设置提示
-    checkSettingsTip() {
+    private checkSettingsTip(): void {
         if (this.checkTimeout) {
             clearTimeout(this.checkTimeout);
         }
@@ -244,7 +270,7 @@ class FeatureTips {
     }
 
     // 显示新功能提示
-    showTips(featureKey) {
+    private showTips(featureKey: string): void {
         console.log('[FeatureTips] 显示提示:', featureKey);
 
         const tipsElement = document.createElement('div');
@@ -256,13 +282,13 @@ class FeatureTips {
         tipsElement.innerHTML = `
       <div class="feature-tips-content">
         <div class="tip-content">
-          ${ICONS.info}
+          ${ICONS['info']}
           <div class="tip-text">
             <div class="feature-tips-title">${chrome.i18n.getMessage('newFeatureTitle')}</div>
             <div class="feature-description">${messageText}</div>
           </div>
           <button class="tip-close" aria-label="关闭提示">
-            ${ICONS.close}
+            ${ICONS['close']}
           </button>
         </div>
       </div>
@@ -271,14 +297,14 @@ class FeatureTips {
         document.body.appendChild(tipsElement);
 
         // 添加关闭按钮事件监听
-        const closeButton = tipsElement.querySelector('.tip-close');
-        closeButton.addEventListener('click', () => {
+        const closeButton = tipsElement.querySelector<HTMLButtonElement>('.tip-close');
+        closeButton?.addEventListener('click', () => {
             this.closeTips(tipsElement);
         });
     }
 
     // 关闭提示
-    closeTips(tipsElement) {
+    private closeTips(tipsElement: HTMLElement): void {
         tipsElement.style.opacity = '0';
         setTimeout(() => {
             tipsElement.remove();
@@ -290,7 +316,7 @@ class FeatureTips {
     }
 
     // 初始化所有提示
-    initAllTips() {
+    initAllTips(): void {
         // 防止重复初始化
         if (this.tipsInitialized) {
             return;
@@ -313,7 +339,7 @@ class FeatureTips {
     }
 
     // 显示设置更新提示
-    showSettingsUpdateTip() {
+    private showSettingsUpdateTip(): void {
         if (this.isShowingTip || !this.domReady || !this.pageLoaded) {
             return;
         }
@@ -326,7 +352,7 @@ class FeatureTips {
         }
         
         this.isShowingTip = true;
-        const tipContainer = document.querySelector('.settings-update-tip');
+        const tipContainer = document.querySelector<HTMLElement>('.settings-update-tip');
         if (tipContainer) {
             console.log('[FeatureTips] 显示设置更新提示');
             
@@ -340,10 +366,10 @@ class FeatureTips {
                 }, 50);
             });
 
-            const closeButton = tipContainer.querySelector('.tip-close');
+            const closeButton = tipContainer.querySelector<HTMLElement>('.tip-close');
             if (closeButton) {
                 const newCloseButton = closeButton.cloneNode(true);
-                closeButton.parentNode.replaceChild(newCloseButton, closeButton);
+                closeButton.replaceWith(newCloseButton);
                 
                 newCloseButton.addEventListener('click', () => {
                     tipContainer.classList.add('tip-fade-out');
@@ -368,7 +394,7 @@ class FeatureTips {
     }
 
     // 开始检查提示
-    startTipsCheck() {
+    private startTipsCheck(): void {
         if (this.checkTimeout) {
             clearTimeout(this.checkTimeout);
         }

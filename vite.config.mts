@@ -12,14 +12,20 @@ export default defineConfig({
         { src: 'manifest.json', dest: '.' },
         { src: '_locales/**/*', dest: '.' },
         { src: 'images/**/*', dest: '.' },
-        { src: 'src/background.js', dest: '.' },
       ],
     }),
   ],
   build: {
     outDir: 'dist',
     rollupOptions: {
-      input: resolve(projectRoot, 'src/index.html'),
+      input: {
+        page: resolve(projectRoot, 'src/index.html'),
+        background: resolve(projectRoot, 'src/background.ts'),
+      },
+      output: {
+        entryFileNames: (chunk) =>
+          chunk.name === 'background' ? 'src/background.js' : 'assets/[name]-[hash].js',
+      },
     },
   },
 })

@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { pruneDefaultFolders } from '../src/default-folders.js'
+import { pruneDefaultFolders } from '../src/default-folders'
 
 test('removes deleted folders from the persisted defaults', async () => {
-  const writes = []
-  const storage = {
+  const writes: { defaultFolders: { items: readonly { id: string; name: string; order: number }[] } }[] = []
+  const storage: Parameters<typeof pruneDefaultFolders>[1] & {
+    readonly sync: { readonly get: () => Promise<never> }
+  } = {
     local: {
       get: async () => ({
         defaultFolders: {
@@ -15,7 +17,9 @@ test('removes deleted folders from the persisted defaults', async () => {
           ],
         },
       }),
-      set: async value => writes.push(value),
+      set: async (value) => {
+        writes.push(value)
+      },
     },
     sync: {
       get: async () => {
@@ -23,8 +27,8 @@ test('removes deleted folders from the persisted defaults', async () => {
       },
     },
   }
-  const bookmarks = {
-    get: async id => {
+  const bookmarks: Parameters<typeof pruneDefaultFolders>[0] = {
+    get: async (id) => {
       if (id === '195') throw new Error("Can't find bookmark for id.")
       return [{ id, title: 'Keep' }]
     },

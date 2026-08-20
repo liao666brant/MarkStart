@@ -41,27 +41,33 @@ const ICONS = {
   cleaning_services: `<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor"><path d="M120-40v-280q0-83 58.5-141.5T320-520h40v-320q0-33 23.5-56.5T440-920h80q33 0 56.5 23.5T600-840v320h40q83 0 141.5 58.5T840-320v280H120Zm80-80h80v-120q0-17 11.5-28.5T320-280q17 0 28.5 11.5T360-240v120h80v-120q0-17 11.5-28.5T480-280q17 0 28.5 11.5T520-240v120h80v-120q0-17 11.5-28.5T640-280q17 0 28.5 11.5T680-240v120h80v-200q0-50-35-85t-85-35H320q-50 0-85 35t-35 85v200Zm320-400v-320h-80v320h80Zm0 0h-80 80Z"/></svg>`,
   keep: `<svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M640-760v280l68 68q6 6 9 13.5t3 15.5v23q0 17-11.5 28.5T680-320H520v234q0 17-11.5 28.5T480-46q-17 0-28.5-11.5T440-86v-234H280q-17 0-28.5-11.5T240-360v-23q0-8 3-15.5t9-13.5l68-68v-280q-17 0-28.5-11.5T280-800q0-17 11.5-28.5T320-840h320q17 0 28.5 11.5T680-800q0 17-11.5 28.5T640-760ZM354-400h252l-46-46v-314H400v314l-46 46Zm126 0Z"/></svg>`,
   keep_off: `<svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M560-760H400v87L290-783q-5-5-7.5-11t-2.5-12q0-13 9-23.5t24-10.5h327q17 0 28.5 11.5T680-800q0 16-14.5 22.5T640-760v240q0 17-11.5 28.5T600-480q-17 0-28.5-11.5T560-520v-240ZM440-80v-240H296q-25 0-40-17.5T241-377q0-11 4.5-22t14.5-21l60-60v-46L84-764q-11-11-11.5-27.5T84-820q11-11 28-11t28 11l679 679q12 12 11.5 28.5T818-84q-12 11-28 11.5T762-84L526-320h-6v240q0 17-11.5 28.5T480-40q-17 0-28.5-11.5T440-80Zm-86-320h92l-44-44-2-2-46 46Zm126-193Zm-78 149Z"/></svg>`
-};
+} as const;
+
+export type IconName = keyof typeof ICONS;
+
+function isIconName(iconName: string): iconName is IconName {
+  return Object.hasOwn(ICONS, iconName);
+}
 
 // 辅助函数：替换图标
-function replaceIconsWithSvg() {
-  document.querySelectorAll('.material-icons').forEach(icon => {
-    const iconName = icon.textContent.trim();
-    if (ICONS[iconName]) {
+function replaceIconsWithSvg(): void {
+  document.querySelectorAll<HTMLElement>('.material-icons').forEach(icon => {
+    const iconName = icon.textContent?.trim() ?? '';
+    if (isIconName(iconName)) {
       const svgWrapper = document.createElement('span');
       svgWrapper.className = 'icon-svg';
       svgWrapper.innerHTML = ICONS[iconName];
-      icon.parentNode.replaceChild(svgWrapper, icon);
+      icon.replaceWith(svgWrapper);
     }
   });
 }
 
 // 辅助函数：获取图标 HTML
-function getIconHtml(iconName) {
-  return ICONS[iconName] ? 
-    `<span class="icon-svg">${ICONS[iconName]}</span>` : 
+function getIconHtml(iconName: string): string {
+  return isIconName(iconName) ?
+    `<span class="icon-svg">${ICONS[iconName]}</span>` :
     `<span class="material-icons">${iconName}</span>`;
 }
 
 // 导出
-export { ICONS, replaceIconsWithSvg, getIconHtml }; 
+export { ICONS, replaceIconsWithSvg, getIconHtml };

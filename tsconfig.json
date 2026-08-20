@@ -1,17 +1,23 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noFallthroughCasesInSwitch": true,
     "noPropertyAccessFromIndexSignature": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
     "verbatimModuleSyntax": true,
+    "isolatedModules": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["chrome", "node"]
   },
-  "include": ["vite.config.mts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "vite.config.mts"],
+  "exclude": ["dist", "node_modules"]
 }

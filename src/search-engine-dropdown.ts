@@ -1,5 +1,15 @@
 // 导入所需的依赖
-import { ICONS, getIconHtml } from './icons.js';
+import { getIconHtml } from './icons';
+import { getLocalizedMessage } from './localization';
+
+type SearchEngine = {
+  readonly name: string;
+  readonly icon: string;
+  readonly label: string;
+  readonly url: string;
+  readonly aliases?: readonly string[];
+  readonly isCustom?: boolean;
+};
 
 // 预定义的所有可用搜索引擎列表
 const ALL_ENGINES = [
@@ -24,22 +34,51 @@ const ALL_ENGINES = [
   { name: 'douban', icon: '../images/douban-logo.svg', label: 'doubanLabel', url: 'https://www.douban.com/search?q=', aliases: ['豆瓣'] },
   { name: 'bilibili', icon: '../images/bilibili-logo.svg', label: 'bilibiliLabel', url: 'https://search.bilibili.com/all?keyword=', aliases: ['Bilibili'] },
   { name: 'github', icon: '../images/github-logo.svg', label: 'githubLabel', url: 'https://github.com/search?q=', aliases: ['GitHub'] }
-];
+] as const satisfies readonly SearchEngine[];
 
 // 定义搜索引擎分类
 const ENGINE_CATEGORIES = {
   AI: ['kimi', 'doubao', 'chatgpt', 'perplexity', 'claude', 'felo', 'metaso', 'semanticscholar', 'deepseek', 'grok'],
   SEARCH: ['google', 'bing', 'baidu', 'duckduckgo', 'yahoo', 'yandex'],
   SOCIAL: ['xiaohongshu', 'jike', 'zhihu', 'douban', 'bilibili', 'github']
-};
+} as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isSearchEngine(value: unknown): value is SearchEngine {
+  if (!isRecord(value)) return false;
+
+  const aliases = value['aliases'];
+  const isCustom = value['isCustom'];
+  return typeof value['name'] === 'string'
+    && typeof value['icon'] === 'string'
+    && typeof value['label'] === 'string'
+    && typeof value['url'] === 'string'
+    && (aliases === undefined || (Array.isArray(aliases) && aliases.every(alias => typeof alias === 'string')))
+    && (isCustom === undefined || typeof isCustom === 'boolean');
+}
+
+function parseStoredEngines(stored: string | null): SearchEngine[] {
+  if (!stored) return [];
+
+  try {
+    const value: unknown = JSON.parse(stored);
+    return Array.isArray(value) ? value.filter(isSearchEngine) : [];
+  } catch (error) {
+    if (error instanceof SyntaxError) return [];
+    throw error;
+  }
+}
 
 // 存储管理相关函数
 const SearchEngineManager = {
   // 获取用户启用的搜索引擎列表
-  getEnabledEngines() {
+  getEnabledEngines(): SearchEngine[] {
     const stored = localStorage.getItem('enabledSearchEngines');
     if (stored) {
-      return JSON.parse(stored);
+      return parseStoredEngines(stored);
     }
     // 默认启用前6个搜索引擎
     const defaultEngines = ALL_ENGINES.slice(0, 8);
@@ -48,19 +87,19 @@ const SearchEngineManager = {
   },
 
   // 保存启用的搜索引擎列表
-  saveEnabledEngines(engines) {
+  saveEnabledEngines(engines: readonly SearchEngine[]): void {
     localStorage.setItem('enabledSearchEngines', JSON.stringify(engines));
   },
 
   // 获取所有可用的搜索引擎列表
-  getAllEngines() {
+  getAllEngines(): SearchEngine[] {
     // 合并预定义和自定义搜索引擎
     const customEngines = getCustomEngines();
     return [...ALL_ENGINES, ...customEngines];
   },
 
   // 添加搜索引擎到启用列表
-  addEngine(engineName) {
+  addEngine(engineName: string): boolean {
     const enabled = this.getEnabledEngines();
     const engine = this.getAllEngines().find(e => e.name === engineName);
     if (engine && !enabled.find(e => e.name === engineName)) {
@@ -72,7 +111,7 @@ const SearchEngineManager = {
   },
 
   // 从启用列表中移除搜索引擎
-  removeEngine(engineName) {
+  removeEngine(engineName: string): boolean {
     const enabled = this.getEnabledEngines();
     const filtered = enabled.filter(e => e.name !== engineName);
     if (filtered.length < enabled.length) {
@@ -83,7 +122,7 @@ const SearchEngineManager = {
   },
 
   // 获取默认搜索引擎
-  getDefaultEngine() {
+  getDefaultEngine(): SearchEngine {
     const defaultEngineName = localStorage.getItem('selectedSearchEngine');
     console.log('[Search] Getting default engine, stored name:', defaultEngineName);
     
@@ -100,7 +139,7 @@ const SearchEngineManager = {
   },
 
   // 设置默认搜索引擎
-  setDefaultEngine(engineName) {
+  setDefaultEngine(engineName: string): boolean {
     const allEngines = this.getAllEngines();
     const engine = allEngines.find(e => e.name === engineName);
     
@@ -115,7 +154,7 @@ const SearchEngineManager = {
 };
 
 // 创建搜索引擎选项
-function createSearchEngineOption(engine, isAddButton = false) {
+function createSearchEngineOption(engine: SearchEngine | null, isAddButton = false): HTMLDivElement {
   const option = document.createElement('div');
   option.className = 'search-engine-option';
   
@@ -129,7 +168,7 @@ function createSearchEngineOption(engine, isAddButton = false) {
     option.addEventListener('click', () => {
       showSearchEnginesDialog(); // 使用新的显示对话框函数
     });
-  } else {
+  } else if (engine) {
     // 创建常规搜索引擎选项
     option.innerHTML = `
       <div class="search-engine-option-content">
@@ -144,11 +183,11 @@ function createSearchEngineOption(engine, isAddButton = false) {
 }
 
 // 处理搜索引擎选择
-function handleSearchEngineSelection(engine) {
+function handleSearchEngineSelection(engine: SearchEngine): void {
   console.log('[Search] Selecting engine:', engine);
   
   // 关闭下拉菜单
-  const dropdownContainer = document.querySelector('.search-engine-dropdown');
+  const dropdownContainer = document.querySelector<HTMLElement>('.search-engine-dropdown');
   if (dropdownContainer) {
     dropdownContainer.style.display = 'none';
   }
@@ -170,8 +209,8 @@ function handleSearchEngineSelection(engine) {
     }
 
     // 触发自定义事件
-    const event = new CustomEvent('defaultSearchEngineChanged', {
-      detail: { engine: engine }
+    const event = new CustomEvent<{ readonly engine: SearchEngine }>('defaultSearchEngineChanged', {
+      detail: { engine }
     });
     document.dispatchEvent(event);
   } else {
@@ -180,16 +219,16 @@ function handleSearchEngineSelection(engine) {
 }
 
 // 更新标签栏状态
-function updateTabsState(engineName) {
+function updateTabsState(engineName: string): void {
   const defaultEngine = engineName.toLowerCase();
-  const tabs = document.querySelectorAll('.tab');
+  const tabs = document.querySelectorAll<HTMLElement>('.tab');
   
   // 先移除所有 active 类
   tabs.forEach(tab => tab.classList.remove('active'));
   
   // 尝试找到对应的标签并添加 active 类
   const matchingTab = Array.from(tabs).find(tab => {
-    const tabEngine = tab.getAttribute('data-engine').toLowerCase();
+    const tabEngine = tab.getAttribute('data-engine')?.toLowerCase();
     return tabEngine === defaultEngine;
   });
 
@@ -200,7 +239,7 @@ function updateTabsState(engineName) {
 }
 
 // 修改初始化函数
-function initializeSearchEngine() {
+function initializeSearchEngine(): void {
   console.log('[Search] Initializing search engine');
   
   // 确保 DOM 已经加载完成
@@ -214,7 +253,7 @@ function initializeSearchEngine() {
 }
 
 // 新增 UI 初始化函数
-function initializeSearchEngineUI() {
+function initializeSearchEngineUI(): void {
   const defaultEngine = SearchEngineManager.getDefaultEngine();
   console.log('[Search] Default engine:', defaultEngine);
   
@@ -222,8 +261,8 @@ function initializeSearchEngineUI() {
     console.log('[Search] Updating UI for engine:', defaultEngine.name);
     
     // 确保搜索表单和图标元素存在
-    const searchForm = document.querySelector('.search-form');
-    const searchEngineIcon = document.getElementById('search-engine-icon');
+    const searchForm = document.querySelector<HTMLElement>('.search-form');
+    const searchEngineIcon = document.querySelector<HTMLImageElement>('#search-engine-icon');
     
     if (searchForm && searchEngineIcon) {
       // 更新搜索引擎图标
@@ -251,7 +290,7 @@ function initializeSearchEngineUI() {
 }
 
 // 添加 getSearchUrl 函数
-function getSearchUrl(engine, query) {
+function getSearchUrl(engine: string, query: string): string {
   const allEngines = SearchEngineManager.getAllEngines();
   const engineConfig = allEngines.find(e => {
     // 匹配引擎名称或别名
@@ -274,8 +313,8 @@ function getSearchUrl(engine, query) {
 }
 
 // 修改 createTemporarySearchTabs 函数中的点击事件处理
-function createTemporarySearchTabs() {
-  const tabsContainer = document.getElementById('tabs-container');
+function createTemporarySearchTabs(): void {
+  const tabsContainer = document.querySelector<HTMLElement>('#tabs-container');
   if (!tabsContainer) return;
 
   // 保留搜索提示文本
@@ -307,7 +346,8 @@ function createTemporarySearchTabs() {
     }
 
     tab.addEventListener('click', function() {
-      const searchInput = document.querySelector('.search-input');
+      const searchInput = document.querySelector<HTMLTextAreaElement>('.search-input');
+      if (!searchInput) return;
       const searchQuery = searchInput.value.trim();
       
       if (searchQuery) {
@@ -321,7 +361,7 @@ function createTemporarySearchTabs() {
         window.open(searchUrl, '_blank');
         
         // 隐藏搜索建议
-        const searchSuggestions = document.querySelector('.search-suggestions-wrapper');
+        const searchSuggestions = document.querySelector<HTMLElement>('.search-suggestions-wrapper');
         if (searchSuggestions) {
           searchSuggestions.style.display = 'none';
         }
@@ -345,7 +385,7 @@ function createTemporarySearchTabs() {
 }
 
 // 修改 createSearchEngineDropdown 函数，添加对临时搜索标签的更新
-function createSearchEngineDropdown() {
+function createSearchEngineDropdown(): void {
   console.log('[Search] Creating dropdown menu');
   
   if (document.readyState === 'loading') {
@@ -362,15 +402,16 @@ function createSearchEngineDropdown() {
 }
 
 // 新增下拉菜单 UI 创建函数
-function createDropdownUI() {
+function createDropdownUI(): void {
   // 将原来 createSearchEngineDropdown 中的 UI 创建代码移到这里
   const existingDropdown = document.querySelector('.search-engine-dropdown');
   if (existingDropdown) {
     existingDropdown.remove();
   }
   
-  const searchForm = document.querySelector('.search-form');
-  const iconContainer = document.querySelector('.search-icon-container');
+  const searchForm = document.querySelector<HTMLElement>('.search-form');
+  const iconContainer = document.querySelector<HTMLElement>('.search-icon-container');
+  if (!searchForm || !iconContainer) return;
   const dropdownContainer = document.createElement('div');
   dropdownContainer.className = 'search-engine-dropdown';
   dropdownContainer.style.display = 'none';
@@ -409,8 +450,8 @@ function createDropdownUI() {
 }
 
 // 添加显示搜索引擎对话框的函数
-function showSearchEnginesDialog() {
-  const dialog = document.getElementById('search-engines-dialog');
+function showSearchEnginesDialog(): void {
+  const dialog = document.querySelector<HTMLElement>('#search-engines-dialog');
   if (!dialog) return;
 
   // 生成搜索引擎列表
@@ -420,7 +461,7 @@ function showSearchEnginesDialog() {
   dialog.style.display = 'block';
 
   // 添加关闭按钮事件
-  const closeButton = dialog.querySelector('.close-button');
+  const closeButton = dialog.querySelector<HTMLElement>('.close-button');
   if (closeButton) {
     closeButton.onclick = () => {
       dialog.style.display = 'none';
@@ -448,10 +489,10 @@ function showSearchEnginesDialog() {
 }
 
 // 修改创建搜索引擎列表函数
-function createSearchEnginesList() {
-  const aiContainer = document.getElementById('ai-search-engines');
-  const searchContainer = document.getElementById('search-engines');
-  const socialContainer = document.getElementById('social-media-engines');
+function createSearchEnginesList(): void {
+  const aiContainer = document.querySelector<HTMLElement>('#ai-search-engines');
+  const searchContainer = document.querySelector<HTMLElement>('#search-engines');
+  const socialContainer = document.querySelector<HTMLElement>('#social-media-engines');
   
   if (!aiContainer || !searchContainer || !socialContainer) return;
 
@@ -465,7 +506,7 @@ function createSearchEnginesList() {
   const enabledEngineNames = enabledEngines.map(e => e.name);
 
   // 修改创建搜索引擎项目的函数
-  const createEngineItem = (engine) => {
+  const createEngineItem = (engine: SearchEngine): HTMLDivElement => {
     const engineItem = document.createElement('div');
     engineItem.className = 'search-engine-item';
 
@@ -501,12 +542,9 @@ function createSearchEnginesList() {
     engineItem.appendChild(engineInfo);
 
     // 简化事件处理逻辑
-    const toggleEngine = (e) => {
-      // 获取实际的复选框元素
-      const checkbox = e.currentTarget.querySelector('input[type="checkbox"]');
-      
+    const toggleEngine = (event: MouseEvent): void => {
       // 排除删除按钮和复选框本身的点击
-      if (e.target.closest('.delete-custom-engine') || e.target === checkbox) {
+      if ((event.target instanceof Element && event.target.closest('.delete-custom-engine')) || event.target === checkbox) {
         return;
       }
 
@@ -517,7 +555,7 @@ function createSearchEnginesList() {
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
       
       // 更新样式和状态
-      e.currentTarget.classList.toggle('selected', checkbox.checked);
+      engineItem.classList.toggle('selected', checkbox.checked);
       handleEngineToggle(engine, checkbox.checked);
     };
 
@@ -525,10 +563,10 @@ function createSearchEnginesList() {
     engineItem.addEventListener('click', toggleEngine);
     
     // 移除复选框的点击事件阻止
-    checkbox.addEventListener('change', (e) => {
+    checkbox.addEventListener('change', () => {
       // 直接更新状态
-      engineItem.classList.toggle('selected', e.target.checked);
-      handleEngineToggle(engine, e.target.checked);
+      engineItem.classList.toggle('selected', checkbox.checked);
+      handleEngineToggle(engine, checkbox.checked);
     });
 
     return engineItem;
@@ -558,7 +596,7 @@ function createSearchEnginesList() {
 }
 
 // 处理搜索引擎启用/禁用
-function handleEngineToggle(engine, enabled) {
+function handleEngineToggle(engine: SearchEngine, enabled: boolean): void {
   if (enabled) {
     SearchEngineManager.addEngine(engine.name);
   } else {
@@ -570,18 +608,19 @@ function handleEngineToggle(engine, enabled) {
 }
 
 // 修改 initCustomEngineForm 函数
-function initCustomEngineForm() {
-  const addButton = document.getElementById('add-custom-engine');
+function initCustomEngineForm(): void {
+  const addButton = document.querySelector<HTMLButtonElement>('#add-custom-engine');
   if (!addButton) return;
 
   addButton.addEventListener('click', async () => {
-    const nameInput = document.getElementById('custom-engine-name');
-    const urlInput = document.getElementById('custom-engine-url');
-    const iconInput = document.getElementById('custom-engine-icon');
+    const nameInput = document.querySelector<HTMLInputElement>('#custom-engine-name');
+    const urlInput = document.querySelector<HTMLInputElement>('#custom-engine-url');
+    const iconInput = document.querySelector<HTMLInputElement>('#custom-engine-icon');
+    if (!nameInput || !urlInput || !iconInput) return;
 
     const name = nameInput.value.trim();
     const url = urlInput.value.trim();
-    let icon = iconInput.value.trim();
+    const icon = iconInput.value.trim();
 
     if (!name) {
       alert(chrome.i18n.getMessage('searchEngineNameRequired'));
@@ -599,7 +638,7 @@ function initCustomEngineForm() {
     // 将 %s 替换为实际的查询参数占位符
     const processedUrl = url.includes('%s') ? url : `${url}${url.includes('?') ? '&' : '?'}q=%s`;
 
-    const customEngine = {
+    const customEngine: SearchEngine = {
       name: `custom_${Date.now()}`,
       label: name,
       url: processedUrl,
@@ -623,19 +662,20 @@ function initCustomEngineForm() {
   });
 
   // 添加 URL 输入框的实时图标预览
-  const urlInput = document.getElementById('custom-engine-url');
-  const iconInput = document.getElementById('custom-engine-icon');
+  const urlInput = document.querySelector<HTMLInputElement>('#custom-engine-url');
+  const iconInput = document.querySelector<HTMLInputElement>('#custom-engine-icon');
+  if (!urlInput || !iconInput) return;
   
   urlInput.addEventListener('blur', async () => {
     const url = urlInput.value.trim();
-    const nameInput = document.getElementById('custom-engine-name');
-    const name = nameInput.value.trim();
+    const nameInput = document.querySelector<HTMLInputElement>('#custom-engine-name');
+    const name = nameInput?.value.trim() ?? '';
     
     if (url && !iconInput.value.trim()) {
       // 显示加载动画
       const loadingIcon = document.createElement('div');
       loadingIcon.className = 'icon-loading-spinner';
-      iconInput.parentNode.insertBefore(loadingIcon, iconInput.nextSibling);
+      iconInput.parentElement?.insertBefore(loadingIcon, iconInput.nextSibling);
       iconInput.classList.add('loading');
 
       try {
@@ -653,7 +693,7 @@ function initCustomEngineForm() {
 }
 
 // 修改文本图标生成函数
-function generateTextIcon(name) {
+function generateTextIcon(name: string): string {
   // 获取首个有效字符
   let firstChar = name.trim().charAt(0);
   
@@ -665,7 +705,7 @@ function generateTextIcon(name) {
     firstChar = firstChar;
   } else {
     // 非中文字符，获取第一个单词并转大写
-    firstChar = name.trim().split(/\s+/)[0].charAt(0).toUpperCase();
+    firstChar = name.trim().split(/\s+/)[0]?.charAt(0).toUpperCase() ?? '';
   }
 
   // 创建 SVG 图标
@@ -693,7 +733,7 @@ function generateTextIcon(name) {
 }
 
 // 修改 getFavicon 函数
-async function getFavicon(url) {
+async function getFavicon(url: string): Promise<string | null> {
   try {
     // 尝试从多个可能的来源获取图标
     const domain = new URL(url).hostname;
@@ -710,41 +750,44 @@ async function getFavicon(url) {
         if (response.ok) {
           return src;
         }
-      } catch (e) {
-        continue;
+      } catch (error) {
+        if (error instanceof TypeError) continue;
+        throw error;
       }
     }
     
     // 如果所有图标源都失败，返回文本图标
     return null;
-  } catch (e) {
-    return null;
+  } catch (error) {
+    if (error instanceof TypeError) return null;
+    throw error;
   }
 }
 
 // 修改 saveCustomEngine 函数
-async function saveCustomEngine(engine) {
+async function saveCustomEngine(engine: SearchEngine): Promise<void> {
   try {
     // 如果没有提供图标，尝试获取网站图标
-    if (!engine.icon) {
-      const favicon = await getFavicon(engine.url);
-      engine.icon = favicon || generateTextIcon(engine.label);
-    }
+    const favicon = engine.icon ? null : await getFavicon(engine.url);
+    const engineToSave: SearchEngine = engine.icon
+      ? engine
+      : { ...engine, icon: favicon || generateTextIcon(engine.label) };
 
     const customEngines = getCustomEngines();
-    customEngines.push(engine);
+    customEngines.push(engineToSave);
     localStorage.setItem('customSearchEngines', JSON.stringify(customEngines));
     
     // 自动启用新添加的搜索引擎
-    SearchEngineManager.addEngine(engine.name);
+    SearchEngineManager.addEngine(engineToSave.name);
     // 立即更新下拉菜单
     createSearchEngineDropdown();
   } catch (error) {
+    if (!(error instanceof Error)) throw error;
     console.error('Error saving custom engine:', error);
     // 使用文本图标作为后备
-    engine.icon = generateTextIcon(engine.label);
+    const fallbackEngine: SearchEngine = { ...engine, icon: generateTextIcon(engine.label) };
     const customEngines = getCustomEngines();
-    customEngines.push(engine);
+    customEngines.push(fallbackEngine);
     localStorage.setItem('customSearchEngines', JSON.stringify(customEngines));
     // 立即更新下拉菜单
     createSearchEngineDropdown();
@@ -752,13 +795,13 @@ async function saveCustomEngine(engine) {
 }
 
 // 获取自定义搜索引擎列表
-function getCustomEngines() {
+function getCustomEngines(): SearchEngine[] {
   const stored = localStorage.getItem('customSearchEngines');
-  return stored ? JSON.parse(stored) : [];
+  return parseStoredEngines(stored);
 }
 
 // 修改 deleteCustomEngine 函数
-function deleteCustomEngine(engineId) {
+function deleteCustomEngine(engineId: string): void {
   if (confirm(chrome.i18n.getMessage('searchEngineDeleteConfirm'))) {
     const customEngines = getCustomEngines();
     const filtered = customEngines.filter(e => e.name !== engineId);
@@ -774,8 +817,8 @@ function deleteCustomEngine(engineId) {
 }
 
 // 刷新自定义搜索引擎列表
-function refreshCustomEngines() {
-  const container = document.getElementById('custom-engines');
+function refreshCustomEngines(): void {
+  const container = document.querySelector<HTMLElement>('#custom-engines');
   if (!container) return;
 
   container.innerHTML = '';
@@ -827,12 +870,9 @@ function refreshCustomEngines() {
     engineItem.appendChild(deleteButton);
 
     // 简化事件处理逻辑
-    const toggleEngine = (e) => {
-      // 获取实际的复选框元素
-      const checkbox = e.currentTarget.querySelector('input[type="checkbox"]');
-      
+    const toggleEngine = (event: MouseEvent): void => {
       // 排除删除按钮和复选框本身的点击
-      if (e.target.closest('.delete-custom-engine') || e.target === checkbox) {
+      if ((event.target instanceof Element && event.target.closest('.delete-custom-engine')) || event.target === checkbox) {
         return;
       }
 
@@ -843,7 +883,7 @@ function refreshCustomEngines() {
       checkbox.dispatchEvent(new Event('change', { bubbles: true }));
       
       // 更新样式和状态
-      e.currentTarget.classList.toggle('selected', checkbox.checked);
+      engineItem.classList.toggle('selected', checkbox.checked);
       handleEngineToggle(engine, checkbox.checked);
     };
 
@@ -851,10 +891,10 @@ function refreshCustomEngines() {
     engineItem.addEventListener('click', toggleEngine);
     
     // 移除复选框的点击事件阻止
-    checkbox.addEventListener('change', (e) => {
+    checkbox.addEventListener('change', () => {
       // 直接更新状态
-      engineItem.classList.toggle('selected', e.target.checked);
-      handleEngineToggle(engine, e.target.checked);
+      engineItem.classList.toggle('selected', checkbox.checked);
+      handleEngineToggle(engine, checkbox.checked);
     });
 
     container.appendChild(engineItem);
@@ -862,10 +902,10 @@ function refreshCustomEngines() {
 }
 
 // 创建新的初始化函数
-function initializeSearchEngineDialog() {
-  const dialog = document.getElementById('search-engines-dialog');
+function initializeSearchEngineDialog(): void {
+  const dialog = document.querySelector<HTMLElement>('#search-engines-dialog');
   if (dialog) {
-    const closeButton = dialog.querySelector('.close-button');
+    const closeButton = dialog.querySelector<HTMLElement>('.close-button');
     if (closeButton) {
       closeButton.addEventListener('click', () => {
         dialog.style.display = 'none';
@@ -893,7 +933,7 @@ function initializeSearchEngineDialog() {
 }
 
 // 修改 updateSearchEngineIcon 函数
-function updateSearchEngineIcon(engine) {
+function updateSearchEngineIcon(engine: SearchEngine | string): void {
   if (typeof engine === 'string') {
     setSearchEngineIcon(engine);
   } else if (engine && engine.name) {
@@ -902,8 +942,8 @@ function updateSearchEngineIcon(engine) {
 }
 
 // 添加 setSearchEngineIcon 函数
-function setSearchEngineIcon(engineName) {
-  const searchEngineIcon = document.getElementById('search-engine-icon');
+function setSearchEngineIcon(engineName: string): void {
+  const searchEngineIcon = document.querySelector<HTMLImageElement>('#search-engine-icon');
   if (!searchEngineIcon) return;
 
   const allEngines = SearchEngineManager.getAllEngines();
@@ -920,7 +960,7 @@ function setSearchEngineIcon(engineName) {
 }
 
 // Add this function if it doesn't exist
-function getSearchEngineIconPath(engineName) {
+function getSearchEngineIconPath(engineName: string): string {
   const allEngines = SearchEngineManager.getAllEngines();
   const engine = allEngines.find(e => e.name === engineName);
   return engine ? engine.icon : '../images/placeholder-icon.svg';

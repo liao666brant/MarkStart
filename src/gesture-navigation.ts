@@ -1,14 +1,15 @@
 import { throttle } from 'radashi';
 
+type UpdateDisplay = (folderId: string) => Promise<unknown>;
+type NavigateToParent = (folderId: string) => void;
+
 // 平台检测
 const isWindows = navigator.platform.includes('Win');
-const isMac = navigator.platform.includes('Mac');
 
 // 导航控制变量
 let isNavigating = false;
 let lastNavigationTime = 0;
 const NAVIGATION_COOLDOWN = 350;
-const NAVIGATION_LOCK_TIME = 500; // 减少锁定时间
 let isTwoFingerSwipe = false;
 let touchStartX = 0;
 let touchStartY = 0;
@@ -16,7 +17,7 @@ let isPointerDown = false;
 let hasNavigated = false; // 添加标志，防止一次滑动触发多次导航
 
 // 导航函数
-function navigateToParent(currentFolderId, updateDisplay) {
+function navigateToParent(currentFolderId: string, updateDisplay: UpdateDisplay): void {
   const now = Date.now();
   
   // 只检查导航状态，移除时间锁定检查
@@ -64,21 +65,25 @@ function navigateToParent(currentFolderId, updateDisplay) {
 }
 
 // 添加重置导航标志的函数
-function resetNavigationFlags() {
+function resetNavigationFlags(): void {
   isNavigating = false;
   hasNavigated = false; // 如果你在外部需要访问这个变量，需要将其声明为全局变量
 }
 
 // Mac 触摸板双指滑动处理
-function initTouchGestures(navigateToParent) {
+function initTouchGestures(navigateToParent: NavigateToParent): void {
   const minSwipeDistance = 250; // 显著增加最小滑动距离
   let swipeStartTime = 0;
 
   document.addEventListener('touchstart', function(e) {
     if (e.touches.length === 2) {
+      const firstTouch = e.touches.item(0);
+      const secondTouch = e.touches.item(1);
+      if (firstTouch === null || secondTouch === null) return;
+
       isTwoFingerSwipe = true;
-      touchStartX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-      touchStartY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      touchStartX = (firstTouch.clientX + secondTouch.clientX) / 2;
+      touchStartY = (firstTouch.clientY + secondTouch.clientY) / 2;
       swipeStartTime = Date.now();
       hasNavigated = false; // 每次触摸开始时重置标志
       
@@ -88,9 +93,12 @@ function initTouchGestures(navigateToParent) {
 
   document.addEventListener('touchmove', function(e) {
     if (!isTwoFingerSwipe) return;
+    const firstTouch = e.touches.item(0);
+    const secondTouch = e.touches.item(1);
+    if (firstTouch === null || secondTouch === null) return;
     e.preventDefault();
 
-    const currentX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const currentX = (firstTouch.clientX + secondTouch.clientX) / 2;
     const deltaX = currentX - touchStartX;
     
     // 进一步降低跟手程度
@@ -103,8 +111,12 @@ function initTouchGestures(navigateToParent) {
   document.addEventListener('touchend', function(e) {
     if (!isTwoFingerSwipe) return;
 
-    const touchEndX = (e.changedTouches[0].clientX + (e.changedTouches[1]?.clientX || e.changedTouches[0].clientX)) / 2;
-    const touchEndY = (e.changedTouches[0].clientY + (e.changedTouches[1]?.clientY || e.changedTouches[0].clientY)) / 2;
+    const firstTouch = e.changedTouches.item(0);
+    if (firstTouch === null) return;
+    const secondTouch = e.changedTouches.item(1) ?? firstTouch;
+
+    const touchEndX = (firstTouch.clientX + secondTouch.clientX) / 2;
+    const touchEndY = (firstTouch.clientY + secondTouch.clientY) / 2;
 
     const deltaX = touchEndX - touchStartX;
     const deltaY = touchEndY - touchStartY;
@@ -118,7 +130,7 @@ function initTouchGestures(navigateToParent) {
         Math.abs(deltaY) < minSwipeDistance / 4 && // 进一步降低垂直容差
         swipeTime > 150 && swipeTime < 1000) { // 扩大时间窗口
       
-      const currentFolderId = document.getElementById('bookmarks-list').dataset.parentId;
+      const currentFolderId = document.getElementById('bookmarks-list')?.dataset['parentId'];
       if (currentFolderId && currentFolderId !== '1' && !hasNavigated) {
         navigateToParent(currentFolderId);
         hasNavigated = true;
@@ -130,11 +142,11 @@ function initTouchGestures(navigateToParent) {
 }
 
 // 优化滚轮处理函数
-function createWheelHandler(navigateToParent) {
+function createWheelHandler(navigateToParent: NavigateToParent): (event: WheelEvent) => void {
   let accumulatedDeltaX = 0;
   let lastWheelTime = 0;
 
-  return throttle({ interval: 200, trailing: false }, function(e) {
+  return throttle({ interval: 200, trailing: false }, function(e: WheelEvent) {
     const currentTime = Date.now();
     
     if (currentTime - lastNavigationTime < NAVIGATION_COOLDOWN) {
@@ -160,7 +172,7 @@ function createWheelHandler(navigateToParent) {
       
       if (isWindows && e.deltaMode !== 0) return;
       
-      const currentFolderId = document.getElementById('bookmarks-list').dataset.parentId;
+      const currentFolderId = document.getElementById('bookmarks-list')?.dataset['parentId'];
       if (currentFolderId && currentFolderId !== '1') {
         navigateToParent(currentFolderId);
         accumulatedDeltaX = 0;
@@ -170,7 +182,7 @@ function createWheelHandler(navigateToParent) {
 }
 
 // Windows 触摸板支持
-function initWindowsTouchpad(navigateToParent) {
+function initWindowsTouchpad(navigateToParent: NavigateToParent): void {
   document.addEventListener('pointerdown', function(e) {
     if (e.pointerType === 'touch') {
       isPointerDown = true;
@@ -189,7 +201,7 @@ function initWindowsTouchpad(navigateToParent) {
     if (Math.abs(deltaX) > MIN_SWIPE_DISTANCE && 
         Math.abs(deltaX) > Math.abs(deltaY) * 2.0 && // 显著增加比率要求
         deltaX < 0) {
-      const currentFolderId = document.getElementById('bookmarks-list').dataset.parentId;
+      const currentFolderId = document.getElementById('bookmarks-list')?.dataset['parentId'];
       if (currentFolderId && currentFolderId !== '1') {
         navigateToParent(currentFolderId);
       }
@@ -202,9 +214,9 @@ function initWindowsTouchpad(navigateToParent) {
 }
 
 // 修改初始化函数，接收 updateDisplay 参数
-function initGestureNavigation(updateDisplay) {
+function initGestureNavigation(updateDisplay: UpdateDisplay): void {
   // 创建一个绑定了 updateDisplay 的导航函数
-  const boundNavigateToParent = (folderId) => navigateToParent(folderId, updateDisplay);
+  const boundNavigateToParent = (folderId: string): void => navigateToParent(folderId, updateDisplay);
 
   // 初始化触摸板手势，传入导航函数
   initTouchGestures(boundNavigateToParent);

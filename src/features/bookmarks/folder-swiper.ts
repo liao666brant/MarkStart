@@ -144,7 +144,7 @@ export function createFolderSwiper(
         thresholdTime: 400,
       },
       on: {
-        slideChange(instance) {
+        slideChangeTransitionEnd(instance) {
           const folderId = instance.slides[instance.activeIndex]?.dataset["folderId"]
           if (folderId !== undefined) onPinnedChange(folderId)
         },

@@ -86,6 +86,7 @@ let contextMenu: HTMLElement | null = null;
 let currentBookmark: CurrentBookmark | null = null;
 let folderSwiper: FolderSwiperHandle | null = null;
 let wheelSwitchingInitialized = false;
+const folderNameUpdateVersions = new WeakMap<HTMLElement, number>();
 
 // 使用单一的状态变量
 let itemToDelete: DeleteTarget | null = null;
@@ -1264,8 +1265,8 @@ function updateFolderName(bookmarkId: string) {
     ?? getActiveFolderName();
   if (!folderNameElement) return;
 
-  // 清除所有内容
-  folderNameElement.innerHTML = '';
+  const updateVersion = (folderNameUpdateVersions.get(folderNameElement) ?? 0) + 1;
+  folderNameUpdateVersions.set(folderNameElement, updateVersion);
 
   // 检查 bookmarkId 是否有效
   if (!bookmarkId || bookmarkId === 'undefined') {
@@ -1275,6 +1276,8 @@ function updateFolderName(bookmarkId: string) {
 
   // 尝试获取书签路径
   getBookmarkPath(bookmarkId).then((pathArray: string[]) => {
+    if (folderNameUpdateVersions.get(folderNameElement) !== updateVersion) return;
+
     let breadcrumbHtml = '';
     let currentPath = '';
 
@@ -1289,6 +1292,8 @@ function updateFolderName(bookmarkId: string) {
     folderNameElement.innerHTML = breadcrumbHtml;
     addBreadcrumbClickListeners();
   }).catch(error => {
+    if (folderNameUpdateVersions.get(folderNameElement) !== updateVersion) return;
+
     console.warn('Error updating folder name:', error);
     // 设置默认文本，并确保它被本地化
     folderNameElement.textContent = getLocalizedMessage('bookmarks');

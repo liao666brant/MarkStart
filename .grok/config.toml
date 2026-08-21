@@ -1,0 +1,8 @@
+[mcp_servers.agent-browser]
+command = "agent-browser"
+args = [
+    "mcp",
+    "--tools",
+    "all",
+]
+enabled = true

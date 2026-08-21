@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "agent-browser": {
+      "type": "local",
+      "command": ["agent-browser", "mcp", "--tools", "all"],
+      "enabled": true
+    }
+  }
+}

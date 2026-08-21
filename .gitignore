@@ -3,3 +3,6 @@ dist/
 release/
 .env
 .omo/
+
+# Claude Code 本机接入用联接（源在 .agents/skills/，避免提交副本）
+.claude/skills/

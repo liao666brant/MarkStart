@@ -274,5 +274,15 @@ window.WelcomeManager = WelcomeManager
 
 document.addEventListener('DOMContentLoaded', () => {
   WelcomeManager.initialize()
-  setInterval(() => WelcomeManager.updateWelcomeMessage(), 60_000)
+
+  // 欢迎语仅依赖时间段：对齐下一个分钟边界单次触发并重排，页面隐藏时跳过刷新
+  const scheduleMinuteRefresh = (): void => {
+    window.setTimeout(() => {
+      if (!document.hidden) {
+        WelcomeManager.updateWelcomeMessage()
+      }
+      scheduleMinuteRefresh()
+    }, 60_000 - (Date.now() % 60_000))
+  }
+  scheduleMinuteRefresh()
 })

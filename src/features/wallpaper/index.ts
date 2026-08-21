@@ -1,10 +1,16 @@
 // allow: SIZE_OK — behavior-preserving migration of the legacy wallpaper controller; structural split is outside this task.
+import { decodeDataUrl, deleteWallpaperBlob, getWallpaperBlob, putWallpaperBlob } from './blob-store';
+import { blobIdFromStorageKey, isIdbStorageKey, toStorageKey } from './storage-keys';
+
 type WallpaperPreset = {
     readonly url: string;
     readonly title: string;
 };
 
-type UserWallpaper = WallpaperPreset & {
+type UserWallpaperRef = {
+    // storageKey 为 toStorageKey(id) 生成的 'idb:<id>' 引用；其余为直接可用的 URL（预设/在线）
+    readonly storageKey: string;
+    readonly title: string;
     readonly timestamp: number;
 };
 
@@ -46,9 +52,9 @@ export class WallpaperManager {
     private presetWallpapers: readonly WallpaperPreset[] = [];
     private readonly preloadQueue = new Set<string>();
     private readonly preloadedImages = new Map<string, HTMLImageElement>();
-    private userWallpapers: UserWallpaper[] = [];
+    private userWallpaperRefs: UserWallpaperRef[] = [];
+    private readonly objectUrls = new Map<string, string>();
     private bingWallpapers: readonly BingWallpaper[] = [];
-    private wallpaperCache: HTMLImageElement | null = null;
     private readonly onlineWallpapers: readonly OnlineWallpaper[] = [];
 
     constructor() {
@@ -56,18 +62,21 @@ export class WallpaperManager {
         this.uploadInput = document.querySelector<HTMLInputElement>('#upload-wallpaper');
         this.mainElement = document.querySelector<HTMLElement>('main');
 
-        // 初始化预设壁纸列表
+        // 初始化预设壁纸列表与事件监听
         this.initializePresetWallpapers();
-
-        // 加载用户壁纸
-        this.loadUserWallpapers();
-
-        // 初始化事件监听和其他设置
         this.initializeEventListeners();
-        this.initialize();
 
-        // 初始化必应壁纸
-        this.initBingWallpapers();
+        // 用户壁纸迁移、渲染与恢复依赖 IndexedDB，异步执行
+        void this.bootstrap();
+    }
+
+    private async bootstrap(): Promise<void> {
+        await this.loadUserWallpapers();
+        this.preloadWallpapers();
+        await this.loadPresetWallpapers();
+        await this.initializeWallpaper();
+        document.documentElement.classList.remove('loading-wallpaper');
+        await this.initBingWallpapers();
     }
 
     // 新增方法：初始化预设壁纸列表
@@ -135,25 +144,24 @@ export class WallpaperManager {
         }
 
         // 添加用户上传的壁纸
-        if (Array.isArray(this.userWallpapers)) {
-            this.userWallpapers.forEach(wallpaper => {
-                const option = this.createWallpaperOption(
-                    wallpaper.url,
-                    chrome.i18n.getMessage('uploadedWallpaperBadge'),
-                    true
-                );
-                wallpaperContainer.appendChild(option);
-            });
+        if (Array.isArray(this.userWallpaperRefs)) {
+            for (const ref of this.userWallpaperRefs) {
+                try {
+                    const displayUrl = await this.resolveDisplayUrl(ref.storageKey);
+                    const option = this.createWallpaperOption(
+                        displayUrl,
+                        chrome.i18n.getMessage('uploadedWallpaperBadge'),
+                        true,
+                        ref.storageKey,
+                    );
+                    wallpaperContainer.appendChild(option);
+                } catch (error) {
+                    console.warn('跳过无法加载的用户壁纸:', error instanceof Error ? error : String(error));
+                }
+            }
         }
     }
 
-    private initialize(): void {
-        this.preloadWallpapers();
-        this.loadPresetWallpapers();
-        this.initializeWallpaper().then(() => {
-            document.documentElement.classList.remove('loading-wallpaper');
-        });
-    }
 
     private initializeEventListeners(): void {
         // 初始化上传事件监听
@@ -264,7 +272,7 @@ export class WallpaperManager {
 
     // 初始化壁纸状态
     private async initializeWallpaper(): Promise<void> {
-        const savedWallpaper = localStorage.getItem('originalWallpaper');
+        let savedWallpaper = localStorage.getItem('originalWallpaper');
         const useDefaultBackground = localStorage.getItem('useDefaultBackground');
         const savedBg = localStorage.getItem('selectedBackground');
         const isDarkMode = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -291,38 +299,45 @@ export class WallpaperManager {
         }
 
         if (savedWallpaper) {
+            // 旧版把 dataURL 整串写进 localStorage，首次启动时迁移为 IndexedDB Blob 引用
+            savedWallpaper = await this.migrateLegacyStoredWallpaper(savedWallpaper);
+
             // 如果使用壁纸，查找对应的选项（包括用户上传的壁纸）
-            let wallpaperOption = document.querySelector(`.wallpaper-option[data-wallpaper-url="${savedWallpaper}"]`);
+            let wallpaperOption = document.querySelector(`.wallpaper-option[data-wallpaper-url="${CSS.escape(savedWallpaper)}"]`);
 
             // 如果找不到对应选项，可能是用户上传的壁纸
             if (!wallpaperOption) {
                 // 重新加载壁纸选项
                 await this.loadPresetWallpapers();
-                wallpaperOption = document.querySelector(`.wallpaper-option[data-wallpaper-url="${savedWallpaper}"]`);
+                wallpaperOption = document.querySelector(`.wallpaper-option[data-wallpaper-url="${CSS.escape(savedWallpaper)}"]`);
             }
 
             if (wallpaperOption) {
                 wallpaperOption.classList.add('active');
             }
 
-            await new Promise<void>((resolve) => {
-                const img = new Image();
-                img.onload = () => {
-                    this.applyWallpaper(savedWallpaper);
-                    resolve();
-                };
-                img.onerror = () => resolve();
-                img.src = savedWallpaper;
-            });
+            try {
+                const displayUrl = await this.resolveDisplayUrl(savedWallpaper);
+                await this.waitForImage(displayUrl);
+                await this.applyWallpaper(displayUrl);
+            } catch (error) {
+                console.warn('恢复壁纸失败，清除失效引用并回退默认背景:', error instanceof Error ? error : String(error));
+                localStorage.removeItem('originalWallpaper');
+                this.applyDefaultBackground();
+            }
         } else {
             // 如果没有保存的壁纸和背景，使用默认背景
-            const defaultBgOption = document.querySelector('.settings-bg-option[data-bg="gradient-background-7"]');
-            if (defaultBgOption) {
-                defaultBgOption.classList.add('active');
-                document.documentElement.className = 'gradient-background-7';
-                localStorage.setItem('useDefaultBackground', 'true');
-                localStorage.setItem('selectedBackground', 'gradient-background-7');
-            }
+            this.applyDefaultBackground();
+        }
+    }
+
+    private applyDefaultBackground(): void {
+        const defaultBgOption = document.querySelector('.settings-bg-option[data-bg="gradient-background-7"]');
+        if (defaultBgOption) {
+            defaultBgOption.classList.add('active');
+            document.documentElement.className = 'gradient-background-7';
+            localStorage.setItem('useDefaultBackground', 'true');
+            localStorage.setItem('selectedBackground', 'gradient-background-7');
         }
     }
 
@@ -405,41 +420,88 @@ export class WallpaperManager {
         }
     }
 
-    // 修改 applyAndSaveWallpaper 方法
-    private async applyAndSaveWallpaper(dataUrl: string): Promise<void> {
+    private async applyAndSaveWallpaper(source: string): Promise<void> {
         try {
+            const previousReference = localStorage.getItem('originalWallpaper');
+
             // 在保存新壁纸前，先清除所有相关的存储
             this.clearWallpaperCache();
+            localStorage.setItem('originalWallpaper', source);
 
-            // 压缩图片数据以减少存储大小
-            const compressedDataUrl = await this.compressImageForStorage(dataUrl);
+            // 用户上传的壁纸从 IndexedDB 读取 Blob 显示；其余直接使用来源 URL
+            const displayUrl = source.startsWith('idb:') ? await this.resolveDisplayUrl(source) : source;
+            await this.waitForImage(displayUrl);
+            await this.applyWallpaper(displayUrl);
 
-            try {
-                // 尝试保存压缩后的数据
-                localStorage.setItem('originalWallpaper', compressedDataUrl);
-            } catch {
-                console.warn('无法保存壁纸到本地存储，将只保存在内存中');
-            }
-
-            // 更新内存缓存
-            if (this.wallpaperCache) {
-                URL.revokeObjectURL(this.wallpaperCache.src);
-                this.wallpaperCache.src = '';
-            }
-            this.wallpaperCache = new Image();
-            this.wallpaperCache.src = dataUrl;
-
-            // 应用壁纸
-            await this.applyWallpaper(dataUrl);
+            await this.pruneReplacedWallpaper(previousReference, source);
         } catch (error) {
             console.error('Failed to save wallpaper:', error instanceof Error ? error : String(error));
             alert('设置壁纸失败，请重试');
         }
     }
 
-    // 添加新方法：压缩图片数据
-    private async compressImageForStorage(dataUrl: string): Promise<string> {
-        return new Promise<string>((resolve, reject) => {
+    private async migrateLegacyStoredWallpaper(value: string): Promise<string> {
+        if (!value.startsWith('data:')) return value;
+
+        try {
+            const blob = await decodeDataUrl(value);
+            const id = `wallpaper-${Date.now()}`;
+            await putWallpaperBlob(id, blob);
+            const storageKey = toStorageKey(id);
+            localStorage.setItem('originalWallpaper', storageKey);
+            return storageKey;
+        } catch (error) {
+            console.warn('迁移旧壁纸数据失败，继续使用原有数据:', error instanceof Error ? error : String(error));
+            return value;
+        }
+    }
+
+    private async pruneReplacedWallpaper(previousReference: string | null, currentSource: string): Promise<void> {
+        if (!previousReference || !previousReference.startsWith('idb:') || previousReference === currentSource) {
+            return;
+        }
+        try {
+            await deleteWallpaperBlob(previousReference.slice(4));
+            this.revokeObjectUrl(previousReference);
+        } catch {
+            // 遗留 Blob 清理失败不影响新壁纸展示
+        }
+    }
+
+    private revokeObjectUrl(storageKey: string): void {
+        const objectUrl = this.objectUrls.get(storageKey);
+        if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+            this.objectUrls.delete(storageKey);
+        }
+    }
+
+    private async resolveDisplayUrl(storageKey: string): Promise<string> {
+        const cached = this.objectUrls.get(storageKey);
+        if (cached) return cached;
+        if (!isIdbStorageKey(storageKey)) return storageKey;
+
+        const blob = await getWallpaperBlob(blobIdFromStorageKey(storageKey));
+        if (!blob) {
+            throw new Error(`Wallpaper blob not found: ${storageKey}`);
+        }
+        const objectUrl = URL.createObjectURL(blob);
+        this.objectUrls.set(storageKey, objectUrl);
+        return objectUrl;
+    }
+
+    private waitForImage(src: string): Promise<void> {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+            img.src = src;
+        });
+    }
+
+    // 压缩图片为 JPEG Blob 存入 IndexedDB；质量 0.8 与其他压缩路径保持一致
+    private async compressImageToBlob(src: string): Promise<Blob> {
+        return new Promise<Blob>((resolve, reject) => {
             const img = new Image();
             img.onload = () => {
                 const canvas = document.createElement('canvas');
@@ -457,15 +519,16 @@ export class WallpaperManager {
                 }
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-                // 使用较低的质量来减少数据大小
-                const compressedDataUrl = canvas.toDataURL('image/jpeg', 1);
-
-                // 清理内存
-                URL.revokeObjectURL(img.src);
-                resolve(compressedDataUrl);
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        resolve(blob);
+                    } else {
+                        reject(new DOMException('Wallpaper image failed to encode', 'EncodingError'));
+                    }
+                }, 'image/jpeg', 0.8);
             };
             img.onerror = () => reject(new DOMException('Wallpaper image failed to load', 'EncodingError'));
-            img.src = dataUrl;
+            img.src = src;
         });
     }
 
@@ -507,38 +570,39 @@ export class WallpaperManager {
                     alert(chrome.i18n.getMessage('fileReadError'));
                     return;
                 }
-                const compressedDataUrl = await this.compressImageForStorage(reader.result);
+                // 图片二进制以 Blob 存入 IndexedDB，localStorage 只保留引用与元数据
+                const blob = await this.compressImageToBlob(reader.result);
+                const id = `upload-${Date.now()}`;
+                await putWallpaperBlob(id, blob);
 
-                // 保存到用户壁纸列表
-                this.userWallpapers.unshift({
-                    url: compressedDataUrl,
+                this.userWallpaperRefs.unshift({
+                    storageKey: toStorageKey(id),
                     title: '自定义壁纸',
                     timestamp: Date.now()
                 });
 
-                // 修改限制数量，比如改为10张
                 const MAX_WALLPAPERS = 1;
-                if (this.userWallpapers.length > MAX_WALLPAPERS) {
-                    // 删除最旧的壁纸
-                    const removedWallpapers = this.userWallpapers.splice(MAX_WALLPAPERS);
-                    // 清理被删除壁纸的资源
-                    removedWallpapers.forEach(wallpaper => {
-                        if (wallpaper.url) {
-                            URL.revokeObjectURL(wallpaper.url);
-                        }
-                    });
+                if (this.userWallpaperRefs.length > MAX_WALLPAPERS) {
+                    // 删除最旧的壁纸并清理其 Blob
+                    const removedRefs = this.userWallpaperRefs.splice(MAX_WALLPAPERS);
+                    for (const ref of removedRefs) {
+                        await this.removeUserWallpaper(ref.storageKey);
+                    }
                 }
 
-                // 保存到localStorage
+                // 保存轻量元数据
                 try {
-                    localStorage.setItem('userWallpapers', JSON.stringify(this.userWallpapers));
+                    localStorage.setItem('userWallpapers', JSON.stringify(this.userWallpaperRefs));
                 } catch {
                     console.warn('Storage quota exceeded, removing oldest wallpapers');
                     // 如果存储失败，继续删除旧壁纸直到能够存储为止
-                    while (this.userWallpapers.length > 1) {
-                        this.userWallpapers.pop();
+                    while (this.userWallpaperRefs.length > 1) {
+                        const removed = this.userWallpaperRefs.pop();
+                        if (removed) {
+                            await this.removeUserWallpaper(removed.storageKey);
+                        }
                         try {
-                            localStorage.setItem('userWallpapers', JSON.stringify(this.userWallpapers));
+                            localStorage.setItem('userWallpapers', JSON.stringify(this.userWallpaperRefs));
                             break;
                         } catch {
                             continue;
@@ -547,7 +611,7 @@ export class WallpaperManager {
                 }
 
                 await this.loadPresetWallpapers();
-                await this.setWallpaper(compressedDataUrl);
+                await this.setWallpaper(`idb:${id}`);
 
             } catch (error) {
                 console.error('处理壁纸时出错:', error instanceof Error ? error : String(error));
@@ -672,11 +736,11 @@ export class WallpaperManager {
         }
     }
 
-    // 添加新方法：创建壁纸选项元素
-    private createWallpaperOption(url: string, title: string, isUploaded = false): HTMLDivElement {
+    // 创建壁纸选项元素；selectorKey 用于稳定标识用户上传壁纸（如 idb:<id>）
+    private createWallpaperOption(url: string, title: string, isUploaded = false, selectorKey?: string): HTMLDivElement {
         const option = document.createElement('div');
         option.className = 'wallpaper-option';
-        option.dataset['wallpaperUrl'] = url;
+        option.dataset['wallpaperUrl'] = selectorKey ?? url;
         option.title = title;
         option.style.backgroundImage = `url('${url}')`;
 
@@ -697,7 +761,7 @@ export class WallpaperManager {
             });
             option.classList.add('active');
             document.documentElement.className = '';
-            this.setWallpaper(url);
+            this.setWallpaper(selectorKey ?? url);
         });
 
         return option;
@@ -749,12 +813,6 @@ export class WallpaperManager {
 
     // 添加清理缓存的方法
     private clearWallpaperCache(): void {
-        if (this.wallpaperCache) {
-            URL.revokeObjectURL(this.wallpaperCache.src);
-            this.wallpaperCache.src = '';
-            this.wallpaperCache = null;
-        }
-
         localStorage.removeItem('originalWallpaper');
         localStorage.removeItem('selectedWallpaper');
         localStorage.removeItem('wallpaperThumbnail');
@@ -788,37 +846,67 @@ export class WallpaperManager {
         });
     }
 
-    // 添加新方法：加载用户壁纸
-    private loadUserWallpapers(): void {
+    // 加载用户壁纸元数据；旧版内嵌 dataURL 的条目迁移为 IndexedDB Blob
+    private async loadUserWallpapers(): Promise<void> {
         try {
             const savedWallpapers = localStorage.getItem('userWallpapers');
-            if (savedWallpapers) {
-                const parsed: unknown = JSON.parse(savedWallpapers);
-                this.userWallpapers = Array.isArray(parsed)
-                    ? parsed.flatMap((wallpaper): UserWallpaper[] => {
-                        if (
-                            typeof wallpaper !== 'object' ||
-                            wallpaper === null ||
-                            !('url' in wallpaper) ||
-                            typeof wallpaper.url !== 'string'
-                        ) {
-                            return [];
-                        }
-                        const title = 'title' in wallpaper && typeof wallpaper.title === 'string'
-                            ? wallpaper.title
-                            : '自定义壁纸';
-                        const timestamp = 'timestamp' in wallpaper && typeof wallpaper.timestamp === 'number'
-                            ? wallpaper.timestamp
-                            : 0;
-                        return [{ url: wallpaper.url, title, timestamp }];
-                    })
-                    : [];
-                // 更新localStorage
-                localStorage.setItem('userWallpapers', JSON.stringify(this.userWallpapers));
+            if (!savedWallpapers) return;
+
+            const parsed: unknown = JSON.parse(savedWallpapers);
+            const refs: UserWallpaperRef[] = [];
+            if (Array.isArray(parsed)) {
+                for (const [index, entry] of parsed.entries()) {
+                    const ref = await this.normalizeUserWallpaperEntry(entry, index);
+                    if (ref) {
+                        refs.push(ref);
+                    }
+                }
             }
+            this.userWallpaperRefs = refs;
+            localStorage.setItem('userWallpapers', JSON.stringify(this.userWallpaperRefs));
         } catch (error) {
             console.error('Failed to load user wallpapers:', error instanceof Error ? error : String(error));
-            this.userWallpapers = [];
+            this.userWallpaperRefs = [];
+        }
+    }
+
+    private async normalizeUserWallpaperEntry(entry: unknown, index: number): Promise<UserWallpaperRef | null> {
+        if (typeof entry !== 'object' || entry === null || !('url' in entry)) {
+            return null;
+        }
+        const url = entry.url;
+        if (typeof url !== 'string') return null;
+        const title = 'title' in entry && typeof entry.title === 'string'
+            ? entry.title
+            : '自定义壁纸';
+        const timestamp = 'timestamp' in entry && typeof entry.timestamp === 'number'
+            ? entry.timestamp
+            : 0;
+
+        if (url.startsWith('data:')) {
+            try {
+                const blob = await decodeDataUrl(url);
+                const id = `user-${timestamp}-${index}`;
+                await putWallpaperBlob(id, blob);
+                return { storageKey: toStorageKey(id), title, timestamp };
+            } catch (error) {
+                console.warn('迁移用户壁纸失败，已跳过:', error instanceof Error ? error : String(error));
+                return null;
+            }
+        }
+
+        // 上次会话遗留的 Object URL 已失效，直接丢弃
+        if (url.startsWith('blob:')) return null;
+        return { storageKey: url, title, timestamp };
+    }
+
+    private async removeUserWallpaper(storageKey: string): Promise<void> {
+        this.revokeObjectUrl(storageKey);
+        if (!storageKey.startsWith('idb:')) return;
+        try {
+            await deleteWallpaperBlob(storageKey.slice(4));
+        } catch (error) {
+            console.warn('清理用户壁纸 Blob 失败:', error instanceof Error ? error : String(error));
         }
     }
 

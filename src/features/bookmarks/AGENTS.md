@@ -9,7 +9,7 @@
 ## 入口与对外接口
 
 - 页面入口由 [`../../main.ts`](../../main.ts) 的 `import './features/bookmarks/page'` 触发。
-- `root.ts` 导出 `getBookmarksBarId`；`order-sync.ts` 导出 `refreshBookmarkOrder`。
+- `root.ts` 导出 `getBookmarksBarId`；`order-sync.ts` 导出 `refreshBookmarkOrder` 与事件驱动的 `startBookmarkChangeSync`（监听 bookmarks 变更事件触发同步，无轮询）。
 - `page-parsers.ts` 导出页面所用的存储/消息边界解析器和相关类型。
 - `folder-swiper.ts` 用 Swiper 管理固定目录整屏滑动，并导出当前书签列表查询。
 
@@ -38,4 +38,5 @@
 ## 变更记录
 
 - 2026-08-21：固定目录切换改为 Swiper 垂直整屏滑动。
+- 2026-08-21：书签排序从 30 秒轮询改为 Chrome 事件驱动；删除失效的虚拟滚动机制；取色改为 64×64 降采样。
 - 2026-08-20：从根级 TypeScript 文件迁入功能目录并建立模块索引。

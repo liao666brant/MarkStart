@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { refreshBookmarkOrder } from '../src/features/bookmarks/order-sync'
+import { refreshBookmarkOrder, startBookmarkChangeSync } from '../src/features/bookmarks/order-sync'
 
 test('refreshes changed bookmark order through the supplied renderer', () => {
   const rendered: { id: string; children: readonly { id: string }[] }[] = []
@@ -78,4 +78,56 @@ test('refreshes bookmark metadata when the order does not change', () => {
   })
 
   assert.deepEqual(rendered, [[{ id: 'bookmark', title: 'New title', url: 'https://new.example' }]])
+})
+
+test('syncs the active folder when a bookmark change event fires', () => {
+  const synced: string[] = []
+  const listeners: Array<() => void> = []
+  const source = {
+    addListener: (callback: () => void) => {
+      listeners.push(callback)
+    },
+  }
+
+  startBookmarkChangeSync(
+    [source],
+    () => 'bookmarks-bar',
+    (parentId) => {
+      synced.push(parentId)
+    },
+    (error) => {
+      throw error
+    },
+  )
+
+  assert.equal(listeners.length, 1)
+  listeners[0]?.()
+  assert.deepEqual(synced, ['bookmarks-bar'])
+})
+
+test('skips syncing without an active folder and reports sync errors', () => {
+  const errors: unknown[] = []
+  const listeners: Array<() => void> = []
+  const source = {
+    addListener: (callback: () => void) => {
+      listeners.push(callback)
+    },
+  }
+  let activeParentId: string | undefined
+
+  startBookmarkChangeSync(
+    [source],
+    () => activeParentId,
+    () => {
+      throw new Error('sync failed')
+    },
+    (error) => errors.push(error),
+  )
+
+  listeners[0]?.()
+  assert.deepEqual(errors, [])
+
+  activeParentId = 'bookmarks-bar'
+  listeners[0]?.()
+  assert.deepEqual(errors, [new Error('sync failed')])
 })

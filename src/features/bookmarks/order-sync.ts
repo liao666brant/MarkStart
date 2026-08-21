@@ -13,9 +13,13 @@ type BookmarksChildrenApi<T extends BookmarkNode> = {
 
 type RenderBookmarks<T extends BookmarkNode> = (bookmarks: readonly T[]) => void
 
-type PeriodicSync = (parentId: string) => void
+type SyncTrigger = (parentId: string) => void
 type CurrentParentId = () => string | undefined
 type SyncErrorHandler = (error: unknown) => void
+
+export type BookmarkChangeSource = {
+  readonly addListener: (callback: () => void) => void
+}
 
 export function refreshBookmarkOrder<T extends BookmarkNode>(
   bookmarksApi: BookmarksChildrenApi<T>,
@@ -33,12 +37,13 @@ export function refreshBookmarkOrder<T extends BookmarkNode>(
   })
 }
 
-export function startPeriodicBookmarkSync(
+export function startBookmarkChangeSync(
+  sources: readonly BookmarkChangeSource[],
   getCurrentParentId: CurrentParentId,
-  sync: PeriodicSync,
+  sync: SyncTrigger,
   handleError: SyncErrorHandler,
 ): void {
-  setInterval(() => {
+  const handle = (): void => {
     const parentId = getCurrentParentId()
     if (!parentId) return
 
@@ -47,5 +52,7 @@ export function startPeriodicBookmarkSync(
     } catch (error) {
       handleError(error instanceof Error ? error : new Error(String(error)))
     }
-  }, 30_000)
+  }
+
+  sources.forEach((source) => source.addListener(handle))
 }

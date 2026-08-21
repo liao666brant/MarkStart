@@ -1,5 +1,5 @@
 import { featureTips } from '../onboarding/feature-tips';
-import { debounce, throttle } from 'radashi';
+import { debounce } from 'radashi';
 import Sortable from 'sortablejs';
 import { createBookmarkCache } from './bookmark-cache';
 import { createBookmarkQrCode } from './qr-modal';
@@ -26,7 +26,7 @@ import {
 import type { BookmarkColors } from './page-parsers';
 import { getIconHtml, ICONS, replaceIconsWithSvg } from '../../shared/icons';
 import { updateBookmarkCard } from './card-update';
-import { refreshBookmarkOrder, startPeriodicBookmarkSync } from './order-sync';
+import { refreshBookmarkOrder, startBookmarkChangeSync } from './order-sync';
 import { initializeSearchInteractions } from '../search/interactions';
 import {
   SearchEngineManager,
@@ -143,27 +143,6 @@ function openEditDialog(bookmark: CurrentBookmark) {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-  // 应用保存的书签卡片高度设置
-  chrome.storage.sync.get('bookmarkCardHeight', (rawResult: unknown) => {
-    const bookmarkCardHeight = getNumberProperty(rawResult, 'bookmarkCardHeight');
-    if (bookmarkCardHeight) {
-      // 创建或更新自定义样式
-      let styleElement = document.getElementById('custom-card-height');
-      if (!styleElement) {
-        styleElement = document.createElement('style');
-        styleElement.id = 'custom-card-height';
-        document.head.appendChild(styleElement);
-      }
-
-      // 设置卡片高度
-      styleElement.textContent = `
-        .card {
-          height: ${bookmarkCardHeight}px !important;
-        }
-      `;
-    }
-  });
-
   // 初始化手势导航，传入 updateBookmarksDisplay 函数
   initGestureNavigation(updateBookmarksDisplay);
    // 初始化功能提示
@@ -408,87 +387,14 @@ document.addEventListener('DOMContentLoaded', () => {
 // 同样，将这个函数也移到全作用域
 
 
-// 1. 首先定义全局变量
-let bookmarksList: HTMLElement;
-let itemHeight = 120;
-let bufferSize = 5;
-let visibleItems: number;
-let allBookmarks: BookmarkNode[] = [];
-  void allBookmarks;
-let renderTimeout: number | null = null;
-let scrollHandler: (() => void) | null = null;
-let resizeObserver: ResizeObserver | null = null;
-let rebindVirtualScroll: (() => void) | null = null;
-
-// 2. 定义主要的虚拟滚动函数
-function initVirtualScroll() {
-  visibleItems = Math.ceil(window.innerHeight / itemHeight) + 2 * bufferSize;
-  let boundList: HTMLElement | null = null;
-
-  // 渲染函数
-  function renderVisibleBookmarks() {
-    if (!getActiveBookmarksList()) return;
-  }
-
-  // 滚动处理函数
-  const handleScroll = throttle({ interval: 16, trailing: true }, () => {
-    if (renderTimeout) {
-      cancelAnimationFrame(renderTimeout);
-    }
-    renderTimeout = requestAnimationFrame(renderVisibleBookmarks);
-  });
-
-  // 窗口大小变化处理函数
-  function handleResize() {
-    const newVisibleItems = Math.ceil(window.innerHeight / itemHeight) + 2 * bufferSize;
-    if (newVisibleItems !== visibleItems) {
-      visibleItems = newVisibleItems;
-      renderVisibleBookmarks();
-    }
-  }
-
-  // 清理函数
-  function cleanup() {
-    if (scrollHandler && boundList) {
-      boundList.removeEventListener('scroll', scrollHandler);
-    }
-    if (resizeObserver) {
-      resizeObserver.disconnect();
-    }
-    if (renderTimeout) {
-      cancelAnimationFrame(renderTimeout);
-    }
-    allBookmarks = [];
-    boundList = null;
-  }
-
-  function initializeListeners() {
-    cleanup();
-    const list = getActiveBookmarksList();
-    if (!list) return;
-    boundList = list;
-    bookmarksList = list;
-    scrollHandler = handleScroll;
-    list.addEventListener('scroll', scrollHandler, { passive: true });
-    resizeObserver = new ResizeObserver(debounce({ delay: 100 }, handleResize));
-    resizeObserver.observe(list);
-  }
-
-  rebindVirtualScroll = initializeListeners;
-  initializeListeners();
-}
-
-// 3. 合并 DOMContentLoaded 事件监听器
+// 合并 DOMContentLoaded 事件监听器
 document.addEventListener('DOMContentLoaded', function() {
-  // 初始化虚拟滚动
-  initVirtualScroll();
-
   const activeContainer = getActiveBookmarksContainer();
   const activeList = getActiveBookmarksList();
   if (activeContainer && activeList) ensureScrollIndicator(activeContainer, activeList);
 
   // 其他初始化代码...
-  startPeriodicSync();
+  startBookmarkSync();
   setupSpecialLinks();
   console.log('[Init] Starting initialization...');
 
@@ -617,58 +523,16 @@ document.addEventListener('DOMContentLoaded', function() {
     attributeFilter: ['class']
   });
 
-  // 初始化快捷链接显示状态
-  chrome.storage.sync.get(['enableQuickLinks'], function(rawResult: unknown) {
-    const enableQuickLinks = getBooleanProperty(rawResult, 'enableQuickLinks');
-    const quickLinksWrapper = document.querySelector<HTMLElement>('.quick-links-wrapper');
-    if (quickLinksWrapper) {
-      quickLinksWrapper.style.display = enableQuickLinks !== false ? 'flex' : 'none';
-    }
-  });
-
-  // 应用保存的书签宽度设置
-  chrome.storage.sync.get(['bookmarkWidth'], (rawResult: unknown) => {
-    const savedWidth = getNumberProperty(rawResult, 'bookmarkWidth') || 190;
-    document.documentElement.style.setProperty('--bookmark-width', `${savedWidth}px`);
-    document.querySelectorAll<HTMLElement>('.bookmarks-list').forEach((list) => {
-      list.style.gridTemplateColumns = `repeat(auto-fill, minmax(${savedWidth}px, 1fr))`;
-    });
-  });
-
-  // 应用保存的书签容器宽度设置
-  chrome.storage.sync.get(['bookmarkContainerWidth'], (rawResult: unknown) => {
-    const savedWidth = getNumberProperty(rawResult, 'bookmarkContainerWidth') || 85; // 默认85%
-    document.documentElement.style.setProperty('--bookmark-container-width', `${savedWidth}%`);
-    document.querySelectorAll<HTMLElement>('.bookmarks-container').forEach((container) => {
-      container.style.width = `${savedWidth}%`;
-    });
-  });
-
-  chrome.storage.sync.get(['bookmarkContainerHeight'], (rawResult: unknown) => {
-    const stored = isUnknownRecord(rawResult) ? rawResult["bookmarkContainerHeight"] : undefined;
-    const parsed = typeof stored === 'number' ? stored : typeof stored === 'string' ? Number(stored) : Number.NaN;
-    const savedHeight = Number.isFinite(parsed) ? parsed : 100;
-    document.documentElement.style.setProperty('--bookmark-container-height', `${savedHeight}%`);
-  });
-
-  chrome.storage.sync.get(['pageTopSpacing', 'pageBottomSpacing'], (rawResult: unknown) => {
-    const top = isUnknownRecord(rawResult) ? rawResult['pageTopSpacing'] : undefined;
-    const bottom = isUnknownRecord(rawResult) ? rawResult['pageBottomSpacing'] : undefined;
-    const parsedTop = typeof top === 'number' ? top : typeof top === 'string' ? Number(top) : Number.NaN;
-    const parsedBottom = typeof bottom === 'number' ? bottom : typeof bottom === 'string' ? Number(bottom) : Number.NaN;
-    document.documentElement.style.setProperty(
-      '--page-top-spacing',
-      `${Number.isFinite(parsedTop) ? parsedTop : 96}px`,
-    );
-    document.documentElement.style.setProperty(
-      '--page-bottom-spacing',
-      `${Number.isFinite(parsedBottom) ? parsedBottom : 32}px`,
-    );
-  });
-
-  // 应用保存的界面元素显示设置
+  // 启动时一次批量读取全部 sync 配置，减少 IPC 往返
   chrome.storage.sync.get(
     [
+      'bookmarkCardHeight',
+      'enableQuickLinks',
+      'bookmarkWidth',
+      'bookmarkContainerWidth',
+      'bookmarkContainerHeight',
+      'pageTopSpacing',
+      'pageBottomSpacing',
       'showSearchBox',
       'showWelcomeMessage',
       'showFooter',
@@ -678,61 +542,132 @@ document.addEventListener('DOMContentLoaded', function() {
       'showExtensionsLink'
     ],
     (rawResult: unknown) => {
-      const showSearchBox = getBooleanProperty(rawResult, 'showSearchBox');
-      const showWelcomeMessage = getBooleanProperty(rawResult, 'showWelcomeMessage');
-      const showFooter = getBooleanProperty(rawResult, 'showFooter');
-      const showHistoryLink = getBooleanProperty(rawResult, 'showHistoryLink');
-      const showDownloadsLink = getBooleanProperty(rawResult, 'showDownloadsLink');
-      const showPasswordsLink = getBooleanProperty(rawResult, 'showPasswordsLink');
-      const showExtensionsLink = getBooleanProperty(rawResult, 'showExtensionsLink');
-      // 应用搜索框显示设置 - 修改为默认隐藏
-      const searchContainer = document.querySelector<HTMLElement>('.search-container');
-      if (searchContainer) {
-        searchContainer.style.display = showSearchBox === true ? '' : 'none';
-      }
-
-      // 应用欢迎语显示设置
-      const welcomeMessage = document.getElementById('welcome-message');
-      if (welcomeMessage) {
-        // 先移除初始的 visibility: hidden
-        welcomeMessage.style.visibility = 'visible';
-        // 然后根据设置决定是否显示
-        welcomeMessage.style.display = showWelcomeMessage !== false ? '' : 'none';
-      }
-
-      // 应用页脚显示设置
-      const footer = document.querySelector<HTMLElement>('footer');
-      if (footer) {
-        footer.style.display = showFooter !== false ? '' : 'none';
-      }
-
-      // 应用快捷链接图标显示设置
-      const toggleElementVisibility = (selector: string, isVisible: boolean) => {
-        const element = document.querySelector<HTMLElement>(selector);
-        if (element) {
-          element.style.display = isVisible ? '' : 'none';
-        }
-      };
-
-      toggleElementVisibility('#history-link', showHistoryLink !== false);
-      toggleElementVisibility('#downloads-link', showDownloadsLink !== false);
-      toggleElementVisibility('#passwords-link', showPasswordsLink !== false);
-      toggleElementVisibility('#extensions-link', showExtensionsLink !== false);
-
-      // 检查是否所有链接都被隐藏
-      const linksContainer = document.querySelector<HTMLElement>('.links-icons');
-      if (linksContainer) {
-        const allLinksHidden =
-          showHistoryLink === false &&
-          showDownloadsLink === false &&
-          showPasswordsLink === false &&
-          showExtensionsLink === false;
-
-        linksContainer.style.display = allLinksHidden ? 'none' : '';
-      }
+      applyBookmarkCardHeight(rawResult);
+      applyQuickLinksVisibility(rawResult);
+      applyBookmarkWidth(rawResult);
+      applyBookmarkContainerSize(rawResult);
+      applyPageSpacing(rawResult);
+      applyElementVisibility(rawResult);
     }
   );
 });
+
+function applyBookmarkCardHeight(rawResult: unknown): void {
+  const bookmarkCardHeight = getNumberProperty(rawResult, 'bookmarkCardHeight');
+  if (!bookmarkCardHeight) return;
+
+  let styleElement = document.getElementById('custom-card-height');
+  if (!styleElement) {
+    styleElement = document.createElement('style');
+    styleElement.id = 'custom-card-height';
+    document.head.appendChild(styleElement);
+  }
+  styleElement.textContent = `
+    .card {
+      height: ${bookmarkCardHeight}px !important;
+    }
+  `;
+}
+
+function applyQuickLinksVisibility(rawResult: unknown): void {
+  const enableQuickLinks = getBooleanProperty(rawResult, 'enableQuickLinks');
+  const quickLinksWrapper = document.querySelector<HTMLElement>('.quick-links-wrapper');
+  if (quickLinksWrapper) {
+    quickLinksWrapper.style.display = enableQuickLinks !== false ? 'flex' : 'none';
+  }
+}
+
+function applyBookmarkWidth(rawResult: unknown): void {
+  const savedWidth = getNumberProperty(rawResult, 'bookmarkWidth') || 190;
+  document.documentElement.style.setProperty('--bookmark-width', `${savedWidth}px`);
+  document.querySelectorAll<HTMLElement>('.bookmarks-list').forEach((list) => {
+    list.style.gridTemplateColumns = `repeat(auto-fill, minmax(${savedWidth}px, 1fr))`;
+  });
+}
+
+function applyBookmarkContainerSize(rawResult: unknown): void {
+  const savedWidth = getNumberProperty(rawResult, 'bookmarkContainerWidth') || 85; // 默认85%
+  document.documentElement.style.setProperty('--bookmark-container-width', `${savedWidth}%`);
+  document.querySelectorAll<HTMLElement>('.bookmarks-container').forEach((container) => {
+    container.style.width = `${savedWidth}%`;
+  });
+
+  const stored = isUnknownRecord(rawResult) ? rawResult["bookmarkContainerHeight"] : undefined;
+  const parsed = typeof stored === 'number' ? stored : typeof stored === 'string' ? Number(stored) : Number.NaN;
+  const savedHeight = Number.isFinite(parsed) ? parsed : 100;
+  document.documentElement.style.setProperty('--bookmark-container-height', `${savedHeight}%`);
+}
+
+function applyPageSpacing(rawResult: unknown): void {
+  const top = isUnknownRecord(rawResult) ? rawResult['pageTopSpacing'] : undefined;
+  const bottom = isUnknownRecord(rawResult) ? rawResult['pageBottomSpacing'] : undefined;
+  const parsedTop = typeof top === 'number' ? top : typeof top === 'string' ? Number(top) : Number.NaN;
+  const parsedBottom = typeof bottom === 'number' ? bottom : typeof bottom === 'string' ? Number(bottom) : Number.NaN;
+  document.documentElement.style.setProperty(
+    '--page-top-spacing',
+    `${Number.isFinite(parsedTop) ? parsedTop : 96}px`,
+  );
+  document.documentElement.style.setProperty(
+    '--page-bottom-spacing',
+    `${Number.isFinite(parsedBottom) ? parsedBottom : 32}px`,
+  );
+}
+
+function applyElementVisibility(rawResult: unknown): void {
+  const showSearchBox = getBooleanProperty(rawResult, 'showSearchBox');
+  const showWelcomeMessage = getBooleanProperty(rawResult, 'showWelcomeMessage');
+  const showFooter = getBooleanProperty(rawResult, 'showFooter');
+  const showHistoryLink = getBooleanProperty(rawResult, 'showHistoryLink');
+  const showDownloadsLink = getBooleanProperty(rawResult, 'showDownloadsLink');
+  const showPasswordsLink = getBooleanProperty(rawResult, 'showPasswordsLink');
+  const showExtensionsLink = getBooleanProperty(rawResult, 'showExtensionsLink');
+
+  // 应用搜索框显示设置 - 修改为默认隐藏
+  const searchContainer = document.querySelector<HTMLElement>('.search-container');
+  if (searchContainer) {
+    searchContainer.style.display = showSearchBox === true ? '' : 'none';
+  }
+
+  // 应用欢迎语显示设置
+  const welcomeMessage = document.getElementById('welcome-message');
+  if (welcomeMessage) {
+    // 先移除初始的 visibility: hidden
+    welcomeMessage.style.visibility = 'visible';
+    // 然后根据设置决定是否显示
+    welcomeMessage.style.display = showWelcomeMessage !== false ? '' : 'none';
+  }
+
+  // 应用页脚显示设置
+  const footer = document.querySelector<HTMLElement>('footer');
+  if (footer) {
+    footer.style.display = showFooter !== false ? '' : 'none';
+  }
+
+  // 应用快捷链接图标显示设置
+  const toggleElementVisibility = (selector: string, isVisible: boolean) => {
+    const element = document.querySelector<HTMLElement>(selector);
+    if (element) {
+      element.style.display = isVisible ? '' : 'none';
+    }
+  };
+
+  toggleElementVisibility('#history-link', showHistoryLink !== false);
+  toggleElementVisibility('#downloads-link', showDownloadsLink !== false);
+  toggleElementVisibility('#passwords-link', showPasswordsLink !== false);
+  toggleElementVisibility('#extensions-link', showExtensionsLink !== false);
+
+  // 检查是否所有链接都被隐藏
+  const linksContainer = document.querySelector<HTMLElement>('.links-icons');
+  if (linksContainer) {
+    const allLinksHidden =
+      showHistoryLink === false &&
+      showDownloadsLink === false &&
+      showPasswordsLink === false &&
+      showExtensionsLink === false;
+
+    linksContainer.style.display = allLinksHidden ? 'none' : '';
+  }
+}
 
 const bookmarksCache = createBookmarkCache<BookmarkNode>();
 
@@ -1052,7 +987,6 @@ function onPinnedSlideChange(folderId: string): void {
     lastViewedTime: Date.now(),
   });
   setupActiveBookmarkListSortable();
-  rebindVirtualScroll?.();
   const activeContainer = getActiveBookmarksContainer();
   const activeList = getActiveBookmarksList();
   if (activeContainer && activeList) ensureScrollIndicator(activeContainer, activeList);
@@ -1160,8 +1094,6 @@ async function switchToFolder(folderId: string) {
       selectSidebarFolder(folderId),
     ]);
     folderSwiper?.slideTo(folderId);
-    rebindVirtualScroll?.();
-
     await chrome.storage.local.set({
       lastViewedFolder: folderId,
       lastViewedTime: Date.now(),
@@ -1381,42 +1313,43 @@ function displayBookmarks(bookmark: BookmarkDisplay, _animate = true) {
   ensureScrollIndicator(bookmarksContainer, bookmarksList);
 }
 
-function getColors(img: HTMLImageElement) {
+// 取色前先降采样到 64×64 离屏画布，避免对原图逐像素扫描产生海量字符串分配与排序
+const COLOR_SAMPLE_SIZE = 64;
+
+function getColors(img: HTMLImageElement): BookmarkColors {
+  const defaultColors: BookmarkColors = { primary: [200, 200, 200], secondary: [220, 220, 220] };
   const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  canvas.width = img.width;
-  canvas.height = img.height;
-  if (!ctx) return { primary: [200, 200, 200], secondary: [220, 220, 220] };
-  ctx.drawImage(img, 0, 0, img.width, img.height);
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imageData.data;
-  const colors: Record<string, number> = {};
+  canvas.width = COLOR_SAMPLE_SIZE;
+  canvas.height = COLOR_SAMPLE_SIZE;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return defaultColors;
+
+  ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, COLOR_SAMPLE_SIZE, COLOR_SAMPLE_SIZE);
+  const data = ctx.getImageData(0, 0, COLOR_SAMPLE_SIZE, COLOR_SAMPLE_SIZE).data;
+  const colorCounts = new Map<number, number>();
 
   for (let i = 0; i < data.length; i += 4) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    const a = data[i + 3];
-    if (a === 0) continue; // 跳过完全透明的像素
-    const rgb = `${r},${g},${b}`;
-    colors[rgb] = (colors[rgb] || 0) + 1;
+    if (data[i + 3] === 0) continue; // 跳过完全透明的像素
+    const key = ((data[i] ?? 0) << 16) | ((data[i + 1] ?? 0) << 8) | (data[i + 2] ?? 0);
+    colorCounts.set(key, (colorCounts.get(key) ?? 0) + 1);
   }
 
-  const sortedColors = Object.entries(colors).sort((a, b) => b[1] - a[1]);
-
-  if (sortedColors.length === 0) {
+  const sortedColors = [...colorCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const primaryKey = sortedColors[0]?.[0];
+  if (primaryKey === undefined) {
     // 如果图片完全透明，返回默认颜色
-    return { primary: [200, 200, 200], secondary: [220, 220, 220] };
+    return defaultColors;
   }
 
-  const [firstColor, secondColor] = sortedColors;
-  if (!firstColor) return { primary: [200, 200, 200], secondary: [220, 220, 220] };
-  const primaryColor = firstColor[0].split(',').map(Number);
-  const secondaryColor = secondColor
-    ? secondColor[0].split(',').map(Number)
-    : primaryColor.map(c => Math.min(255, c + 20)); // 如果只有一种颜色，创建一个稍微亮的次要颜色
+  const toRgb = (key: number): readonly number[] => [(key >> 16) & 255, (key >> 8) & 255, key & 255];
+  const secondaryKey = sortedColors[1]?.[0];
 
-  return { primary: primaryColor, secondary: secondaryColor };
+  return {
+    primary: toRgb(primaryKey),
+    secondary: secondaryKey !== undefined
+      ? toRgb(secondaryKey)
+      : toRgb(primaryKey).map(c => Math.min(255, c + 20)), // 如果只有一种颜色，创建一个稍微亮的次要颜色
+  };
 }
 
 
@@ -2631,8 +2564,15 @@ function syncBookmarkOrder(parentId: string) {
 }
 
 // 添加一个定期同步函数
-function startPeriodicSync() {
-  startPeriodicBookmarkSync(
+function startBookmarkSync() {
+  startBookmarkChangeSync(
+    [
+      chrome.bookmarks.onCreated,
+      chrome.bookmarks.onRemoved,
+      chrome.bookmarks.onChanged,
+      chrome.bookmarks.onMoved,
+      chrome.bookmarks.onChildrenReordered,
+    ],
     () => getActiveBookmarksList()?.dataset["parentId"],
     syncBookmarkOrder,
     (error) => console.error('Error during bookmark sync:', error instanceof Error ? error : String(error)),
@@ -2739,14 +2679,6 @@ document.addEventListener('DOMContentLoaded', function () {
   // 在页面加载完成后立即检查 folder-name 元素
   const folderNameElement = getActiveFolderName();
   if (!folderNameElement) return;
-
-  // 设置一个 MutationObserver 来监视 folder-name 元素的变化
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((_mutation) => {
-    });
-  });
-
-  observer.observe(folderNameElement, { childList: true, subtree: true });
 
 
   function waitForFirstCategoryEdge(attemptsLeft: number) {
@@ -3482,13 +3414,11 @@ function ensureScrollIndicator(bookmarksContainer: HTMLElement, bookmarksList: H
 
 // 在DOMContentLoaded事件中调用
 document.addEventListener('DOMContentLoaded', function() {
-  // 初始化虚拟滚动
-  initVirtualScroll();
 
   const activeContainer = getActiveBookmarksContainer();
   const activeList = getActiveBookmarksList();
   if (activeContainer && activeList) ensureScrollIndicator(activeContainer, activeList);
 
   // 其他初始化代码...
-  startPeriodicSync();
+  startBookmarkSync();
 });

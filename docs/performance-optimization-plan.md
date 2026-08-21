@@ -1,6 +1,18 @@
 # MarkStart 性能优化方案
 
-> 状态：方案评审中　|　基线：master @6664970（v1.245）　|　日期：2026-08-21
+> 状态：已实施（2026-08-21）　|　基线：master @6664970（v1.245）　|　日期：2026-08-21
+
+## 2.1 实施记录（2026-08-21）
+
+- 阶段 1/2/3/4/6 及 P2-1（page.ts 启动路径）、P3-1 已全部落地；壁纸二进制迁入 IndexedDB（`wallpaper/blob-store.ts`），localStorage 改存 `idb:<id>` 引用，旧 dataURL 启动时自动迁移。
+- **P2-1 settings 部分**：settings 初始化已改为一次批量读取 sync 配置后分发；"同键的成对 get→set 收敛为读一次、写各自键" 即由该批量读取实现。
+- **P2-2 决策**：设置侧栏初始化推迟到 `requestIdleCallback`；feature-tips 本就等待 window load、二维码弹窗本就按需创建，无需改动；快捷链接菜单未延迟——其本体是首屏可见内容，且 `quick-links/AGENTS.md` 声明 DOMContentLoaded 内部顺序为运行时契约，强行拆分会扩大回归面。
+- 运行时验证环境限制见第 7 节附录；实际采用 ms-playwright Chromium + `--load-extension` 独立实例方案（流程固化为 `.agents/skills/verify-mv3-extension` 技能）。
+- **量化对比**（master @f216e3e vs 本次改动，同一 Chromium、各自全新 profile、单标签页、65 秒静置窗口）：
+  - 空闲轮询 IPC（`bookmarks.getChildren` 调用次数）：**4 次 → 0 次**（30 秒轮询已消除）；
+  - 欢迎语刷新次数：1 次 → 1 次（对齐分钟边界，行为不变）；
+  - 静置渲染主线程忙时：**213ms → 175ms**（-18%，CPU profiler 采样）；
+  - 加载时序（单次采样，波动较大，供参考）：DCE 81–134ms / Load 112–155ms；当前包体 +74KB（未压缩，IndexedDB 存储层所致），换取启动不再同步读写大字符串。
 
 ## 1. 背景与目标
 

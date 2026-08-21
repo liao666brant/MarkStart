@@ -6,6 +6,14 @@ import { createBookmarkQrCode } from './qr-modal';
 import { getBookmarksBarId } from './root';
 import { pruneDefaultFolders } from './default-folders';
 import { initGestureNavigation } from './gesture-navigation';
+import {
+  createFolderSwiper,
+  getActiveBookmarksContainer,
+  getActiveBookmarksList,
+  getActiveFolderName,
+  queryBookmarksList,
+  type FolderSwiperHandle,
+} from './folder-swiper';
 import { applySavedBackgroundColor } from '../wallpaper/background';
 import {
   getBooleanProperty,
@@ -76,6 +84,8 @@ let bookmarkTreeNodes: BookmarkNode[] = [];
 let defaultSearchEngine = 'google';
 let contextMenu: HTMLElement | null = null;
 let currentBookmark: CurrentBookmark | null = null;
+let folderSwiper: FolderSwiperHandle | null = null;
+let wheelSwitchingInitialized = false;
 
 // 使用单一的状态变量
 let itemToDelete: DeleteTarget | null = null;
@@ -407,17 +417,16 @@ let allBookmarks: BookmarkNode[] = [];
 let renderTimeout: number | null = null;
 let scrollHandler: (() => void) | null = null;
 let resizeObserver: ResizeObserver | null = null;
+let rebindVirtualScroll: (() => void) | null = null;
 
 // 2. 定义主要的虚拟滚动函数
 function initVirtualScroll() {
-  bookmarksList = requireElement(document.getElementById('bookmarks-list'), HTMLElement, '#bookmarks-list');
-
   visibleItems = Math.ceil(window.innerHeight / itemHeight) + 2 * bufferSize;
+  let boundList: HTMLElement | null = null;
 
   // 渲染函数
   function renderVisibleBookmarks() {
-    if (!bookmarksList) return;
-    // ... 保持原有的 renderVisibleBookmarks 实现 ...
+    if (!getActiveBookmarksList()) return;
   }
 
   // 滚动处理函数
@@ -439,8 +448,8 @@ function initVirtualScroll() {
 
   // 清理函数
   function cleanup() {
-    if (scrollHandler) {
-      bookmarksList.removeEventListener('scroll', scrollHandler);
+    if (scrollHandler && boundList) {
+      boundList.removeEventListener('scroll', scrollHandler);
     }
     if (resizeObserver) {
       resizeObserver.disconnect();
@@ -449,46 +458,22 @@ function initVirtualScroll() {
       cancelAnimationFrame(renderTimeout);
     }
     allBookmarks = [];
+    boundList = null;
   }
 
-  // 初始化事件监听
   function initializeListeners() {
-    cleanup(); // 清理旧的监听器
-
+    cleanup();
+    const list = getActiveBookmarksList();
+    if (!list) return;
+    boundList = list;
+    bookmarksList = list;
     scrollHandler = handleScroll;
-    bookmarksList.addEventListener('scroll', scrollHandler, { passive: true });
-
-    // 确保 handleResize 在正确的作用域内
-    const boundHandleResize = handleResize;
-    resizeObserver = new ResizeObserver(debounce({ delay: 100 }, boundHandleResize));
-    resizeObserver.observe(bookmarksList);
+    list.addEventListener('scroll', scrollHandler, { passive: true });
+    resizeObserver = new ResizeObserver(debounce({ delay: 100 }, handleResize));
+    resizeObserver.observe(list);
   }
 
-  // 更新书签显示
-  window.updateBookmarksDisplay = function(parentId: string, _movedItemId?: string, _newIndex?: number) {
-    return new Promise<void>((resolve, reject) => {
-      chrome.bookmarks.getChildren(parentId, (bookmarks) => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-          return;
-        }
-
-        cleanup();
-        allBookmarks = bookmarks;
-
-        updateContainerHeight();
-        updateFolderName(parentId);
-        renderVisibleBookmarks();
-
-        bookmarksList.dataset["parentId"] = parentId;
-        initializeListeners();
-
-        resolve();
-      });
-    });
-  };
-
-  // 初始化
+  rebindVirtualScroll = initializeListeners;
   initializeListeners();
 }
 
@@ -497,8 +482,9 @@ document.addEventListener('DOMContentLoaded', function() {
   // 初始化虚拟滚动
   initVirtualScroll();
 
-  // 初始化滚动指示器
-  initScrollIndicator();
+  const activeContainer = getActiveBookmarksContainer();
+  const activeList = getActiveBookmarksList();
+  if (activeContainer && activeList) ensureScrollIndicator(activeContainer, activeList);
 
   // 其他初始化代码...
   startPeriodicSync();
@@ -642,19 +628,41 @@ document.addEventListener('DOMContentLoaded', function() {
   // 应用保存的书签宽度设置
   chrome.storage.sync.get(['bookmarkWidth'], (rawResult: unknown) => {
     const savedWidth = getNumberProperty(rawResult, 'bookmarkWidth') || 190;
-    const bookmarksList = document.getElementById('bookmarks-list');
-    if (bookmarksList) {
-      bookmarksList.style.gridTemplateColumns = `repeat(auto-fill, minmax(${savedWidth}px, 1fr))`;
-    }
+    document.documentElement.style.setProperty('--bookmark-width', `${savedWidth}px`);
+    document.querySelectorAll<HTMLElement>('.bookmarks-list').forEach((list) => {
+      list.style.gridTemplateColumns = `repeat(auto-fill, minmax(${savedWidth}px, 1fr))`;
+    });
   });
 
   // 应用保存的书签容器宽度设置
   chrome.storage.sync.get(['bookmarkContainerWidth'], (rawResult: unknown) => {
     const savedWidth = getNumberProperty(rawResult, 'bookmarkContainerWidth') || 85; // 默认85%
-    const bookmarksContainer = document.querySelector<HTMLElement>('.bookmarks-container');
-    if (bookmarksContainer) {
-      bookmarksContainer.style.width = `${savedWidth}%`;
-    }
+    document.documentElement.style.setProperty('--bookmark-container-width', `${savedWidth}%`);
+    document.querySelectorAll<HTMLElement>('.bookmarks-container').forEach((container) => {
+      container.style.width = `${savedWidth}%`;
+    });
+  });
+
+  chrome.storage.sync.get(['bookmarkContainerHeight'], (rawResult: unknown) => {
+    const stored = isUnknownRecord(rawResult) ? rawResult["bookmarkContainerHeight"] : undefined;
+    const parsed = typeof stored === 'number' ? stored : typeof stored === 'string' ? Number(stored) : Number.NaN;
+    const savedHeight = Number.isFinite(parsed) ? parsed : 100;
+    document.documentElement.style.setProperty('--bookmark-container-height', `${savedHeight}%`);
+  });
+
+  chrome.storage.sync.get(['pageTopSpacing', 'pageBottomSpacing'], (rawResult: unknown) => {
+    const top = isUnknownRecord(rawResult) ? rawResult['pageTopSpacing'] : undefined;
+    const bottom = isUnknownRecord(rawResult) ? rawResult['pageBottomSpacing'] : undefined;
+    const parsedTop = typeof top === 'number' ? top : typeof top === 'string' ? Number(top) : Number.NaN;
+    const parsedBottom = typeof bottom === 'number' ? bottom : typeof bottom === 'string' ? Number(bottom) : Number.NaN;
+    document.documentElement.style.setProperty(
+      '--page-top-spacing',
+      `${Number.isFinite(parsedTop) ? parsedTop : 96}px`,
+    );
+    document.documentElement.style.setProperty(
+      '--page-bottom-spacing',
+      `${Number.isFinite(parsedBottom) ? parsedBottom : 32}px`,
+    );
   });
 
   // 应用保存的界面元素显示设置
@@ -728,7 +736,7 @@ document.addEventListener('DOMContentLoaded', function() {
 const bookmarksCache = createBookmarkCache<BookmarkNode>();
 
 async function updateBookmarkCards() {
-  const bookmarksList = requireElement(document.getElementById('bookmarks-list'), HTMLElement, '#bookmarks-list');
+  const bookmarksList = requireElement(getActiveBookmarksList(), HTMLElement, '#bookmarks-list');
   const defaultBookmarkId = localStorage.getItem('defaultBookmarkId');
   let parentId = defaultBookmarkId || bookmarksList.dataset["parentId"];
 
@@ -940,8 +948,8 @@ function showErrorFeedback(element: HTMLElement) {
 async function waitForFirstCategory(attemptsLeft = 5) {
   try {
     // 1. 先隐藏书签列表，避免闪烁
-    const bookmarksList = document.getElementById('bookmarks-list');
-    const bookmarksContainer = document.querySelector<HTMLElement>('.bookmarks-container');
+    const bookmarksList = getActiveBookmarksList();
+    const bookmarksContainer = getActiveBookmarksContainer();
     if (bookmarksList && bookmarksContainer) {
       bookmarksContainer.style.opacity = '0';
       bookmarksContainer.style.transition = 'opacity 0.3s ease';
@@ -1004,7 +1012,7 @@ async function waitForFirstCategory(attemptsLeft = 5) {
       // 重试次数用完，使用实际存在的书签栏目录
       await showBookmarksBar();
       // 显示内容
-      const bookmarksContainer = document.querySelector<HTMLElement>('.bookmarks-container');
+      const bookmarksContainer = getActiveBookmarksContainer();
       if (bookmarksContainer) {
         bookmarksContainer.style.opacity = '1';
       }
@@ -1019,7 +1027,36 @@ async function showBookmarksBar() {
   selectSidebarFolder(folderId);
 }
 
-// 修改 initDefaultFoldersTabs 函数
+function ensureFolderSwiper(): FolderSwiperHandle {
+  if (folderSwiper) return folderSwiper;
+  const container = document.querySelector('.folder-swiper');
+  if (!(container instanceof HTMLElement)) {
+    throw new TypeError('Missing folder swiper container');
+  }
+  folderSwiper = createFolderSwiper(container, onPinnedSlideChange);
+  return folderSwiper;
+}
+
+function onPinnedSlideChange(folderId: string): void {
+  document.querySelectorAll<HTMLElement>('.folder-tab').forEach((tab) => {
+    const isActive = tab.dataset["folderId"] === folderId;
+    tab.classList.toggle('active', isActive);
+  });
+  const list = queryBookmarksList(folderId);
+  const shownId = list?.dataset["parentId"] ?? folderId;
+  updateFolderName(shownId);
+  selectSidebarFolder(shownId);
+  void chrome.storage.local.set({
+    lastViewedFolder: folderId,
+    lastViewedTime: Date.now(),
+  });
+  setupActiveBookmarkListSortable();
+  rebindVirtualScroll?.();
+  const activeContainer = getActiveBookmarksContainer();
+  const activeList = getActiveBookmarksList();
+  if (activeContainer && activeList) ensureScrollIndicator(activeContainer, activeList);
+}
+
 async function initDefaultFoldersTabs() {
   const tabsContainer = document.querySelector<HTMLElement>('.tabs-container');
   const defaultFoldersTabs = document.querySelector<HTMLElement>('.default-folders-tabs');
@@ -1029,22 +1066,15 @@ async function initDefaultFoldersTabs() {
     return;
   }
 
-  // 获取默认文件夹列表
   const [{ lastViewedFolder }, folders] = await Promise.all([
     chrome.storage.local.get('lastViewedFolder'),
     pruneDefaultFolders(chrome.bookmarks, chrome.storage),
   ]);
-  let defaultFolders = folders;
+  const defaultFolders = folders.sort((a, b) => a.order - b.order);
+  const swiper = ensureFolderSwiper();
 
-  // 确保文件夹按 order 排序
-  defaultFolders = defaultFolders.sort((a, b) => a.order - b.order);
-
-  console.log('Initializing default folders tabs:', defaultFolders);
-
-  // 清空现有标签
   tabsContainer.innerHTML = '';
 
-  // 创建标签
   for (const folder of defaultFolders) {
     const tab = document.createElement('div');
     tab.className = 'folder-tab';
@@ -1055,206 +1085,88 @@ async function initDefaultFoldersTabs() {
     tabsContainer.appendChild(tab);
   }
 
-  // 只调用一次更新书签树
   chrome.bookmarks.getTree(function (nodes) {
     bookmarkTreeNodes = nodes;
     displayBookmarkCategories(bookmarkTreeNodes[0]?.children ?? [], 0, null, '1');
   });
 
-  // 如果有默认文件夹，激活第一个或上次访问的文件夹
   if (defaultFolders.length > 0) {
-    let folderToActivate: string;
+    const folderToActivate = typeof lastViewedFolder === 'string'
+      && defaultFolders.some((folder) => folder.id === lastViewedFolder)
+      ? lastViewedFolder
+      : defaultFolders[0]?.id ?? await getBookmarksBarId(chrome.bookmarks);
 
-    // 检查上次访问的文件夹是否在默认文件夹列表中
-    if (typeof lastViewedFolder === 'string' && defaultFolders.some(f => f.id === lastViewedFolder)) {
-      folderToActivate = lastViewedFolder;
-    } else {
-      // 否则使用第一个默认文件夹
-      folderToActivate = defaultFolders[0]?.id ?? await getBookmarksBarId(chrome.bookmarks);
-    }
+    swiper.rebuild(defaultFolders.map((folder) => ({
+      id: folder.id,
+      name: folder.name,
+    })), folderToActivate);
 
-    // 激活选中的文件夹
-    const activeTab = document.querySelector<HTMLElement>(`.folder-tab[data-folder-id="${folderToActivate}"]`);
-    if (activeTab) {
-      activeTab.classList.add('active');
-      activeTab.style.transform = 'scale(1.2)';
-    }
-
-    // 切换到选中的文件夹
+    await Promise.all(defaultFolders.map(async (folder) => {
+      await updateBookmarksDisplay(folder.id);
+      updateFolderName(folder.id);
+    }));
     await switchToFolder(folderToActivate);
   } else {
-    // 当没有默认文件夹时，切换到根文件夹或其他指定文件夹
-    await switchToFolder(await getBookmarksBarId(chrome.bookmarks));
+    const folderToActivate = await getBookmarksBarId(chrome.bookmarks);
+    swiper.rebuild([{ id: folderToActivate, name: 'Bookmarks' }], folderToActivate);
+    await switchToFolder(folderToActivate);
   }
 
-  // 重新初始化滚轮切换功能
   initWheelSwitching();
-
-  // 更新显示状态
   updateDefaultFoldersTabsVisibility();
 
   return defaultFolders;
 }
 
-// 修改滚轮切换功能的实现
 function initWheelSwitching() {
-  const main = document.querySelector<HTMLElement>('main');
-  if (!main) return;
+  const swiper = folderSwiper;
+  if (!swiper) return;
 
-  let wheelTimeout: ReturnType<typeof setTimeout> | undefined;
-  let isProcessing = false;
-  let wheelEventListener: ((event: WheelEvent) => void) | null = null;
-  let isEnabled = false; // 默认禁用
-
-  // 创建滚轮事件处理函数
-  const wheelHandler = async (event: WheelEvent) => {
-    // 如果功能被禁用，直接返回
-    if (!isEnabled) return;
-
-    // 检查是否在搜索相关元素内滚动
-    if (!(event.target instanceof Element)) return;
-    if (event.target.closest('#bookmarks-list') ||
-        event.target.closest('.search-form') ||
-        event.target.closest('.search-suggestions') ||
-        event.target.closest('.search-suggestions-wrapper')) {
-      return;
-    }
-
-    // 防止重复触发
-    if (isProcessing) return;
-
-    // 防抖处理
-    clearTimeout(wheelTimeout);
-    wheelTimeout = setTimeout(async () => {
-      isProcessing = true;
-
-      try {
-        const data = await chrome.storage.local.get('defaultFolders');
-        const defaultFolders = getDefaultFolders(data["defaultFolders"]);
-        if (defaultFolders.length <= 1) {
-          isProcessing = false;
-          return;
-        }
-
-        // 获取当前激活的标签
-        const activeTab = document.querySelector<HTMLElement>('.folder-tab.active');
-        if (!activeTab) {
-          isProcessing = false;
-          return;
-        }
-
-        const currentOrder = parseInt(activeTab.dataset["order"] ?? '0');
-        let nextOrder;
-
-        // 根据滚动方向决定下一个标签
-        if (event.deltaY > 0) { // 向下滚动
-          nextOrder = currentOrder + 1;
-          if (nextOrder >= defaultFolders.length) {
-            nextOrder = 0;
-          }
-        } else { // 向上滚动
-          nextOrder = currentOrder - 1;
-          if (nextOrder < 0) {
-            nextOrder = defaultFolders.length - 1;
-          }
-        }
-
-        // 找到对应顺序的文件夹并切换
-        const nextFolder = defaultFolders.find(f => f.order === nextOrder);
-        if (nextFolder) {
-          await switchToFolder(nextFolder.id);
-
-          // 添加切换动画效果
-          const tabs = document.querySelectorAll<HTMLElement>('.folder-tab');
-          tabs.forEach(tab => {
-            if (tab.dataset["folderId"] === nextFolder.id) {
-              tab.classList.add('switching');
-              tab.style.transform = 'scale(1.2)';
-              setTimeout(() => {
-                tab.classList.remove('switching');
-              }, 1500);
-            } else {
-              tab.style.transform = 'scale(1)';
-            }
-          });
-        }
-      } catch (error) {
-        console.error('Error in wheel switching:', error instanceof Error ? error : String(error));
-      } finally {
-        // 设置一个短暂的冷却时间
-        setTimeout(() => {
-          isProcessing = false;
-        }, 150);
-      }
-    }, 50); // 50ms 的防抖延迟
+  const apply = (enabled: boolean): void => {
+    swiper.setMousewheelEnabled(enabled);
   };
 
-  // 添加或移除事件监听器的函数
-  const updateWheelListener = (enabled: boolean) => {
-    if (enabled) {
-      if (!wheelEventListener) {
-        main.addEventListener('wheel', wheelHandler, { passive: true });
-        wheelEventListener = wheelHandler;
-      }
-    } else {
-      if (wheelEventListener) {
-        main.removeEventListener('wheel', wheelEventListener);
-        wheelEventListener = null;
-      }
-    }
-  };
-
-  // 检查设置并初始化
   chrome.storage.sync.get({ enableWheelSwitching: false }, (rawResult: unknown) => {
-    isEnabled = getBooleanProperty(rawResult, 'enableWheelSwitching') === true;
-    updateWheelListener(isEnabled);
+    apply(getBooleanProperty(rawResult, 'enableWheelSwitching') === true);
   });
 
-  // 监听设置变化
+  if (wheelSwitchingInitialized) return;
+  wheelSwitchingInitialized = true;
+
   document.addEventListener('wheelSwitchingChanged', (event) => {
     if (!(event instanceof CustomEvent)) return;
     const enabled = getBooleanProperty(event.detail, 'enabled');
     if (enabled === undefined) return;
-    isEnabled = enabled;
-    updateWheelListener(isEnabled);
+    apply(enabled);
   });
 }
 
-// 修改文件夹切换函数，确保同步更新所有状态
 async function switchToFolder(folderId: string) {
   try {
-    console.log('Switching to folder:', folderId);
-
-    // 验证文件夹是否存在
     const results = await chrome.bookmarks.get(folderId);
     if (!results || results.length === 0) {
       throw new Error('Folder not found');
     }
 
-    // 更新UI状态
-    document.querySelectorAll<HTMLElement>('.folder-tab').forEach(tab => {
+    document.querySelectorAll<HTMLElement>('.folder-tab').forEach((tab) => {
       const isActive = tab.dataset["folderId"] === folderId;
       tab.classList.toggle('active', isActive);
-      tab.style.transform = isActive ? 'scale(1.2)' : 'scale(1)';
-      tab.style.transition = 'transform 0.3s ease';
     });
 
-    // 同步更新所有状态
     await Promise.all([
       updateBookmarksDisplay(folderId),
       updateFolderName(folderId),
-      selectSidebarFolder(folderId)
+      selectSidebarFolder(folderId),
     ]);
+    folderSwiper?.slideTo(folderId);
+    rebindVirtualScroll?.();
 
-    // 保存最后访问的文件夹
     await chrome.storage.local.set({
       lastViewedFolder: folderId,
-      lastViewedTime: Date.now()
+      lastViewedTime: Date.now(),
     });
-
   } catch (error) {
     console.error('Error switching folder:', error instanceof Error ? error : String(error));
-    // 错误时回退到根目录
     await showBookmarksBar();
   }
 }
@@ -1266,7 +1178,7 @@ function updateBookmarksDisplay(parentId: string, movedItemId?: string, _newInde
     if (cached && !movedItemId) {
       // 如果有缓存且不是移动操作，直接使用缓存数据
       console.log('Using cached bookmarks for:', parentId);
-      displayBookmarks({ id: parentId, children: cached.bookmarks });
+      displayBookmarks({ id: parentId, children: cached.bookmarks }, true);
       resolve();
       return;
     }
@@ -1278,16 +1190,11 @@ function updateBookmarksDisplay(parentId: string, movedItemId?: string, _newInde
         return;
       }
 
-      const bookmarksList = document.getElementById('bookmarks-list');
-        void bookmarksList;
-      const bookmarksContainer = document.querySelector<HTMLElement>('.bookmarks-container');
-        void bookmarksContainer;
-
       // 更新缓存
       bookmarksCache.set(parentId, bookmarks);
 
       // 显示书签
-      displayBookmarks({ id: parentId, children: bookmarks });
+      displayBookmarks({ id: parentId, children: bookmarks }, movedItemId === undefined);
 
       if (movedItemId) {
         highlightBookmark(movedItemId);
@@ -1300,6 +1207,8 @@ function updateBookmarksDisplay(parentId: string, movedItemId?: string, _newInde
     });
   });
 }
+
+window.updateBookmarksDisplay = updateBookmarksDisplay;
 
 // 获取书栏的本地化名称
 function getBookmarksBarName(): Promise<string> {
@@ -1350,7 +1259,9 @@ function getBookmarkPath(bookmarkId: string): Promise<string[]> {
 }
 
 function updateFolderName(bookmarkId: string) {
-  const folderNameElement = document.getElementById('folder-name');
+  const list = queryBookmarksList(bookmarkId);
+  const folderNameElement = list?.closest('.bookmarks-container')?.querySelector<HTMLElement>('.folder-name')
+    ?? getActiveFolderName();
   if (!folderNameElement) return;
 
   // 清除所有内容
@@ -1436,44 +1347,33 @@ function navigateToPath(path: string) {
   });
 }
 
-function displayBookmarks(bookmark: BookmarkDisplay) {
-  const bookmarksList = document.getElementById('bookmarks-list');
-  const bookmarksContainer = document.querySelector<HTMLElement>('.bookmarks-container');
-  if (!bookmarksList || !bookmarksContainer) {
+function displayBookmarks(bookmark: BookmarkDisplay, _animate = true) {
+  const bookmarksList = queryBookmarksList(bookmark.id);
+  const bookmarksContainer = bookmarksList?.closest('.bookmarks-container');
+  if (!bookmarksList || !(bookmarksContainer instanceof HTMLElement)) {
     return;
   }
 
-  // 先移除 loaded 类
-  bookmarksContainer.classList.remove('loaded');
-
   const fragment = document.createDocumentFragment();
-
   const itemsToDisplay = [...(bookmark.children ?? [])];
 
   itemsToDisplay.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
 
   itemsToDisplay.forEach((child: BookmarkNode) => {
     if (child.url) {
-      const card = createBookmarkCard(child, child.index ?? 0);
-      fragment.appendChild(card);
+      fragment.appendChild(createBookmarkCard(child, child.index ?? 0));
     } else {
-      const folderCard = createFolderCard(child, child.index ?? 0);
-      fragment.appendChild(folderCard);
+      fragment.appendChild(createFolderCard(child, child.index ?? 0));
     }
   });
 
   bookmarksList.innerHTML = '';
   bookmarksList.appendChild(fragment);
   bookmarksList.dataset["parentId"] = bookmark.id;
-
-  // 使用 requestAnimationFrame 确保在下一帧添加 loaded 类
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      bookmarksContainer.classList.add('loaded');
-    });
-  });
-
-  setupSortable();
+  bookmarksList.scrollTop = 0;
+  bookmarksContainer.classList.add('loaded');
+  bindBookmarkListSortable(bookmarksList);
+  ensureScrollIndicator(bookmarksContainer, bookmarksList);
 }
 
 function getColors(img: HTMLImageElement) {
@@ -1983,7 +1883,7 @@ function deleteBookmark(bookmarkId: string, _bookmarkTitle: string) {
       bookmarksCache.clear();
 
       // 更新父文件夹的显示
-      const parentId = document.getElementById('bookmarks-list')?.dataset["parentId"];
+      const parentId = getActiveBookmarksList()?.dataset["parentId"];
       if (parentId) {
         // 不需要完全刷新，因为我们已经从界面上移除了书签卡片
         // 但我们需要更新缓存和排序
@@ -2133,45 +2033,91 @@ function createFolderCard(folder: BookmarkNode, index: number) {
   return card;
 }
 
-function setupSortable() {
-  const bookmarksList = document.getElementById('bookmarks-list');
-  if (bookmarksList) {
-    new Sortable(bookmarksList, {
-      animation: 150,
-      onEnd: function (evt) {
-        const itemId = evt.item.dataset["id"];
-        const newParentId = bookmarksList.dataset["parentId"];
-        const newIndex = evt.newIndex;
+const bookmarkListSortables = new WeakMap<HTMLElement, Sortable>();
+let categoriesListSortable: Sortable | null = null;
+const nestedFolderSortables: Sortable[] = [];
 
-        showMovingFeedback(evt.item);
+function bindBookmarkListSortable(bookmarksList: HTMLElement): void {
+  if (bookmarkListSortables.has(bookmarksList)) return;
+  const sortable = new Sortable(bookmarksList, {
+    animation: 150,
+    onEnd: function (evt) {
+      const itemId = evt.item.dataset["id"];
+      const newParentId = bookmarksList.dataset["parentId"];
+      const newIndex = evt.newIndex;
 
-        if (itemId === undefined || newParentId === undefined || newIndex === undefined) return;
-        moveBookmark(itemId, newParentId, newIndex)
-          .then(() => {
-            hideMovingFeedback(evt.item);
-            showSuccessFeedback(evt.item);
-          })
-          .catch(error => {
-            console.error('Error moving bookmark:', error);
-            hideMovingFeedback(evt.item);
-            showErrorFeedback(evt.item);
-            syncBookmarkOrder(newParentId);
-          });
-      }
-    });
-  } else {
-    console.error('Bookmarks list element not found');
+      showMovingFeedback(evt.item);
+
+      if (itemId === undefined || newParentId === undefined || newIndex === undefined) return;
+      moveBookmark(itemId, newParentId, newIndex)
+        .then(() => {
+          hideMovingFeedback(evt.item);
+          showSuccessFeedback(evt.item);
+        })
+        .catch(error => {
+          console.error('Error moving bookmark:', error);
+          hideMovingFeedback(evt.item);
+          showErrorFeedback(evt.item);
+          syncBookmarkOrder(newParentId);
+        });
+    }
+  });
+  bookmarkListSortables.set(bookmarksList, sortable);
+}
+
+function setupActiveBookmarkListSortable(): void {
+  const bookmarksList = getActiveBookmarksList();
+  if (bookmarksList) bindBookmarkListSortable(bookmarksList);
+}
+
+function setupSidebarSortable(): void {
+  const categoriesList = document.getElementById('categories-list');
+  if (!categoriesList) {
+    console.error('Categories list element not found');
+    return;
   }
 
-  const categoriesList = document.getElementById('categories-list');
-  if (categoriesList) {
-    new Sortable(categoriesList, {
-      animation: 150,
+  categoriesListSortable?.destroy();
+  nestedFolderSortables.forEach((sortable) => sortable.destroy());
+  nestedFolderSortables.length = 0;
+
+  categoriesListSortable = new Sortable(categoriesList, {
+    animation: 150,
+    group: 'nested',
+    fallbackOnBody: true,
+    swapThreshold: 0.65,
+    onStart: function (evt) {
+      console.log('Category drag started:', evt.item.dataset["id"]);
+    },
+    onEnd: function (evt) {
+      const itemEl = evt.item;
+      const newIndex = evt.newIndex;
+      const bookmarkId = itemEl.dataset["id"];
+      const newParentId = evt.to.closest<HTMLElement>('li')?.dataset["id"] ?? '1';
+
+      console.log('Category moved:', {
+        bookmarkId: bookmarkId,
+        newParentId: newParentId,
+        oldIndex: evt.oldIndex,
+        newIndex: newIndex,
+        fromList: evt.from.id,
+        toList: evt.to.id
+      });
+
+      if (evt.oldIndex !== evt.newIndex || evt.from !== evt.to) {
+        if (bookmarkId !== undefined && newIndex !== undefined) moveBookmark(bookmarkId, newParentId, newIndex);
+      }
+    }
+  });
+
+  categoriesList.querySelectorAll<HTMLElement>('li ul').forEach((folder) => {
+    nestedFolderSortables.push(new Sortable(folder, {
       group: 'nested',
+      animation: 150,
       fallbackOnBody: true,
       swapThreshold: 0.65,
       onStart: function (evt) {
-        console.log('Category drag started:', evt.item.dataset["id"]);
+        console.log('Subfolder drag started:', evt.item.dataset["id"]);
       },
       onEnd: function (evt) {
         const itemEl = evt.item;
@@ -2179,7 +2125,7 @@ function setupSortable() {
         const bookmarkId = itemEl.dataset["id"];
         const newParentId = evt.to.closest<HTMLElement>('li')?.dataset["id"] ?? '1';
 
-        console.log('Category moved:', {
+        console.log('Subfolder item moved:', {
           bookmarkId: bookmarkId,
           newParentId: newParentId,
           oldIndex: evt.oldIndex,
@@ -2192,42 +2138,8 @@ function setupSortable() {
           if (bookmarkId !== undefined && newIndex !== undefined) moveBookmark(bookmarkId, newParentId, newIndex);
         }
       }
-    });
-
-    const folders = categoriesList.querySelectorAll<HTMLElement>('li ul');
-    folders.forEach((folder, _index) => {
-      new Sortable(folder, {
-        group: 'nested',
-        animation: 150,
-        fallbackOnBody: true,
-        swapThreshold: 0.65,
-        onStart: function (evt) {
-          console.log('Subfolder drag started:', evt.item.dataset["id"]);
-        },
-        onEnd: function (evt) {
-          const itemEl = evt.item;
-          const newIndex = evt.newIndex;
-          const bookmarkId = itemEl.dataset["id"];
-          const newParentId = evt.to.closest<HTMLElement>('li')?.dataset["id"] ?? '1';
-
-          console.log('Subfolder item moved:', {
-            bookmarkId: bookmarkId,
-            newParentId: newParentId,
-            oldIndex: evt.oldIndex,
-            newIndex: newIndex,
-            fromList: evt.from.id,
-            toList: evt.to.id
-          });
-
-          if (evt.oldIndex !== evt.newIndex || evt.from !== evt.to) {
-            if (bookmarkId !== undefined && newIndex !== undefined) moveBookmark(bookmarkId, newParentId, newIndex);
-          }
-        }
-      });
-    });
-  } else {
-    console.error('Categories list element not found');
-  }
+    }));
+  });
 }
 
 function moveBookmark(itemId: string, newParentId: string, newIndex: number): Promise<void> {
@@ -2251,7 +2163,7 @@ function moveBookmark(itemId: string, newParentId: string, newIndex: number): Pr
 
 function updateAffectedBookmarks(parentId: string, movedItemId: string | undefined, newIndex: number): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const bookmarksList = document.getElementById('bookmarks-list');
+    const bookmarksList = getActiveBookmarksList();
     if (!bookmarksList) {
       reject(new Error('Bookmarks list not found'));
       return;
@@ -2376,7 +2288,7 @@ function displayBookmarkCategories(bookmarkNodes: BookmarkNode[], level: number,
     }
   });
 
-  setupSortable();
+  if (!parentUl) setupSidebarSortable();
 }
 
 // 添加一个获取文件夹内书签数量的函数
@@ -2504,7 +2416,7 @@ async function createMenuItems(menu: HTMLElement) {
             Utilities.showToast(getLocalizedMessage('deleteSuccess'));
 
             // 5. 如果删除的是当前显示的文件夹，则返回上一级并重新加载
-            const bookmarksList = document.getElementById('bookmarks-list');
+            const bookmarksList = getActiveBookmarksList();
             if (bookmarksList?.dataset["parentId"] === folderId) {
               await updateBookmarksDisplay(parentId);
               updateFolderName(parentId);
@@ -2716,7 +2628,7 @@ function syncBookmarkOrder(parentId: string) {
 // 添加一个定期同步函数
 function startPeriodicSync() {
   startPeriodicBookmarkSync(
-    () => document.getElementById('bookmarks-list')?.dataset["parentId"],
+    () => getActiveBookmarksList()?.dataset["parentId"],
     syncBookmarkOrder,
     (error) => console.error('Error during bookmark sync:', error instanceof Error ? error : String(error)),
   );
@@ -2820,7 +2732,7 @@ document.addEventListener('DOMContentLoaded', function () {
 document.addEventListener('DOMContentLoaded', function () {
 
   // 在页面加载完成后立即检查 folder-name 元素
-  const folderNameElement = document.getElementById('folder-name');
+  const folderNameElement = getActiveFolderName();
   if (!folderNameElement) return;
 
   // 设置一个 MutationObserver 来监视 folder-name 元素的变化
@@ -3422,43 +3334,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function updateDefaultFoldersTabsVisibility() {
   const defaultFoldersTabs = document.querySelector<HTMLElement>('.default-folders-tabs');
-  const sidebarContainer = document.getElementById('sidebar-container');
   const tabsContainer = document.querySelector<HTMLElement>('.tabs-container');
-
   if (!defaultFoldersTabs || !tabsContainer) return;
-
-  // 检查标签数量
-  const folderTabs = tabsContainer.querySelectorAll<HTMLElement>('.folder-tab');
-  defaultFoldersTabs.classList.toggle('show', folderTabs.length > 1);
-
-  // 处理侧边栏状态
-  if (sidebarContainer) {
-    defaultFoldersTabs.classList.toggle('sidebar-expanded', !sidebarContainer.classList.contains('collapsed'));
-    defaultFoldersTabs.classList.toggle('sidebar-collapsed', sidebarContainer.classList.contains('collapsed'));
-  }
+  defaultFoldersTabs.classList.toggle('show', tabsContainer.querySelectorAll('.folder-tab').length > 0);
 }
-
-// 监听侧边栏状态变化
-document.addEventListener('DOMContentLoaded', () => {
-  const sidebarContainer = document.getElementById('sidebar-container');
-  if (sidebarContainer) {
-    const observer = new MutationObserver(updateDefaultFoldersTabsVisibility);
-    observer.observe(sidebarContainer, { attributes: true, attributeFilter: ['class'] });
-  }
-
-  // 初始化状态
-  updateDefaultFoldersTabsVisibility();
-});
 
 // 在标签更新时调用
 document.addEventListener('defaultFoldersChanged', updateDefaultFoldersTabsVisibility);
 
 // 添加滚动指示器功能
-function initScrollIndicator() {
-  const bookmarksContainer = document.querySelector<HTMLElement>('.bookmarks-container');
-  const bookmarksList = requireElement(document.getElementById('bookmarks-list'), HTMLElement, '#bookmarks-list');
-
-  if (!bookmarksContainer) return;
+function ensureScrollIndicator(bookmarksContainer: HTMLElement, bookmarksList: HTMLElement): void {
+  if (bookmarksContainer.querySelector('.scroll-indicator')) return;
 
   // 创建滚动指示器
   const scrollIndicator = document.createElement('div');
@@ -3594,8 +3480,9 @@ document.addEventListener('DOMContentLoaded', function() {
   // 初始化虚拟滚动
   initVirtualScroll();
 
-  // 初始化滚动指示器
-  initScrollIndicator();
+  const activeContainer = getActiveBookmarksContainer();
+  const activeList = getActiveBookmarksList();
+  if (activeContainer && activeList) ensureScrollIndicator(activeContainer, activeList);
 
   // 其他初始化代码...
   startPeriodicSync();

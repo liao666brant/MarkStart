@@ -633,6 +633,30 @@
         "message": "Anpassen Sie die Breite des Lesezeichen-Containers im Seitenbereich",
         "description": "Beschreibung der Lesezeichen-Container-Breite-Einstellungen"
     },
+    "containerHeightTitle": {
+        "message": "Lesezeichen-Container-Höhe",
+        "description": "Titel für Lesezeichen-Container-Höhe-Einstellungen"
+    },
+    "containerHeightDescription": {
+        "message": "Passen Sie die Höhe des Lesezeichen-Containers im Seitenbereich an",
+        "description": "Beschreibung der Lesezeichen-Container-Höhe-Einstellungen"
+    },
+    "pageTopSpacingTitle": {
+        "message": "Oberer Abstand",
+        "description": "Titel für den oberen Seitenabstand"
+    },
+    "pageTopSpacingDescription": {
+        "message": "Leerraum über der Begrüßung anpassen",
+        "description": "Beschreibung des oberen Seitenabstands"
+    },
+    "pageBottomSpacingTitle": {
+        "message": "Unterer Abstand",
+        "description": "Titel für den unteren Seitenabstand"
+    },
+    "pageBottomSpacingDescription": {
+        "message": "Leerraum unter dem Lesezeichenbereich anpassen",
+        "description": "Beschreibung des unteren Seitenabstands"
+    },
     "interfaceElementsTitle": {
         "message": "Anzeige der Benutzeroberfläche",
         "description": "Titel der Einstellungen für die Anzeige der Benutzeroberfläche"

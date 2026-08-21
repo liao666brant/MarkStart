@@ -26,7 +26,7 @@
         </li>
       </ul>
     </aside>
-    <main class="flex-1 bg-gray-50 p-8 overflow-auto flex flex-col">
+    <main class="flex-1 bg-gray-50 p-8 overflow-hidden flex flex-col">
       <div class="welcome-search-container">
         <div id="welcome-message" data-i18n="welcomeMessage" style="visibility: hidden;"></div>
       </div>
@@ -58,34 +58,39 @@
           <!-- 占位符将由JavaScript动态生成 -->
         </div>
       </div>
-      <div class="bookmarks-container">
-        <div id="folder-name" class="folder-name">
-        </div>
-        <div class="flex flex-wrap gap-4 justify-center flex-grow" id="bookmarks-list">
-          <!-- 添加占位符 -->
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-          <div class="bookmark-placeholder"></div>
-
-          <!-- 可以根据需要添加更多占位符 -->
+      <div class="folder-swiper-host">
+      <div class="folder-swiper swiper">
+        <div class="swiper-wrapper">
+          <div class="swiper-slide">
+            <div class="bookmarks-container">
+              <div id="folder-name" class="folder-name">
+              </div>
+              <div class="bookmarks-scroller">
+              <div class="bookmarks-list" id="bookmarks-list">
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+                <div class="bookmark-placeholder"></div>
+              </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <!-- 添加默认文件夹切换区域 -->
       <div class="default-folders-tabs">
         <div class="tabs-container">
-          <!-- 文件夹标签将通过JS动态生成 -->
         </div>
+      </div>
       </div>
       <!-- Edit Bookmark Dialog -->
       <div id="edit-dialog" class="modal">
@@ -119,7 +124,7 @@
           </form>
         </div>
       </div>
-      <footer class="bg-gray-50 text-center p-4 border-t border-gray-200 mt-4">
+      <footer class="bg-gray-50 text-center p-4 border-t border-gray-200">
       <!-- 新增的进度条容器 -->
       <div id="year-progress" class="year-progress-container"></div>
       </footer>
@@ -275,6 +280,45 @@
               </div>
               <div class="preview-text" style="margin-top: 16px;">
                 <span data-i18n="containerWidthDescription">调整书签容器在页面中的宽度比例</span>
+              </div>
+            </div>
+
+            <h4 class="settings-section-title" data-i18n="containerHeightTitle">书签容器高度</h4>
+            <div id="container-height-settings">
+              <div class="slider-container" style="display: flex; align-items: center; gap: 10px;">
+                <input type="range" id="container-height-slider" min="40" max="100" step="5" value="100" style="flex: 1;">
+                <div class="value-display" style="white-space: nowrap;">
+                  <span id="container-height-value">100</span>%
+                </div>
+              </div>
+              <div class="preview-text" style="margin-top: 16px;">
+                <span data-i18n="containerHeightDescription">调整书签容器在页面中的高度比例</span>
+              </div>
+            </div>
+
+            <h4 class="settings-section-title" data-i18n="pageTopSpacingTitle">顶部间距</h4>
+            <div id="page-top-spacing-settings">
+              <div class="slider-container" style="display: flex; align-items: center; gap: 10px;">
+                <input type="range" id="page-top-spacing-slider" min="0" max="192" step="8" value="96" style="flex: 1;">
+                <div class="value-display" style="white-space: nowrap;">
+                  <span id="page-top-spacing-value">96</span>px
+                </div>
+              </div>
+              <div class="preview-text" style="margin-top: 16px;">
+                <span data-i18n="pageTopSpacingDescription">调整欢迎语上方的空白</span>
+              </div>
+            </div>
+
+            <h4 class="settings-section-title" data-i18n="pageBottomSpacingTitle">底部间距</h4>
+            <div id="page-bottom-spacing-settings">
+              <div class="slider-container" style="display: flex; align-items: center; gap: 10px;">
+                <input type="range" id="page-bottom-spacing-slider" min="0" max="192" step="8" value="32" style="flex: 1;">
+                <div class="value-display" style="white-space: nowrap;">
+                  <span id="page-bottom-spacing-value">32</span>px
+                </div>
+              </div>
+              <div class="preview-text" style="margin-top: 16px;">
+                <span data-i18n="pageBottomSpacingDescription">调整书签区域下方的空白</span>
               </div>
             </div>
 

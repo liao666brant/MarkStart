@@ -717,6 +717,30 @@
         "message": "ページ内のブックマークコンテナの幅比率を調整",
         "description": "ブックマークコンテナの幅設定の説明"
     },
+    "containerHeightTitle": {
+        "message": "ブックマークコンテナの高さ",
+        "description": "ブックマークコンテナの高さ設定のタイトル"
+    },
+    "containerHeightDescription": {
+        "message": "ページ内のブックマークコンテナの高さ比率を調整",
+        "description": "ブックマークコンテナの高さ設定の説明"
+    },
+    "pageTopSpacingTitle": {
+        "message": "上部の余白",
+        "description": "ページ上部余白設定のタイトル"
+    },
+    "pageTopSpacingDescription": {
+        "message": "歓迎メッセージ上の余白を調整",
+        "description": "ページ上部余白設定の説明"
+    },
+    "pageBottomSpacingTitle": {
+        "message": "下部の余白",
+        "description": "ページ下部余白設定のタイトル"
+    },
+    "pageBottomSpacingDescription": {
+        "message": "ブックマーク領域下の余白を調整",
+        "description": "ページ下部余白設定の説明"
+    },
     "donateTab": {
         "message": "寄付",
         "description": "設定の寄付タブ名"

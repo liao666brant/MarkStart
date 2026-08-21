@@ -798,6 +798,24 @@
     "containerWidthDescription": {
         "message": "调整书签容器在页面中的宽度比例"
     },
+    "containerHeightTitle": {
+        "message": "书签容器高度"
+    },
+    "containerHeightDescription": {
+        "message": "调整书签容器在页面中的高度比例"
+    },
+    "pageTopSpacingTitle": {
+        "message": "顶部间距"
+    },
+    "pageTopSpacingDescription": {
+        "message": "调整欢迎语上方的空白"
+    },
+    "pageBottomSpacingTitle": {
+        "message": "底部间距"
+    },
+    "pageBottomSpacingDescription": {
+        "message": "调整书签区域下方的空白"
+    },
     "donateTab": {
         "message": "赞赏",
         "description": "Donate tab name in settings"

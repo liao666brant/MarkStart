@@ -680,6 +680,30 @@
         "message": "Adjust the width proportion of the bookmark container in the page",
         "description": "Description of bookmark container width setting"
     },
+    "containerHeightTitle": {
+        "message": "Bookmark Container Height",
+        "description": "Title for bookmark container height setting"
+    },
+    "containerHeightDescription": {
+        "message": "Adjust the height proportion of the bookmark container in the page",
+        "description": "Description of bookmark container height setting"
+    },
+    "pageTopSpacingTitle": {
+        "message": "Top Spacing",
+        "description": "Title for top page spacing setting"
+    },
+    "pageTopSpacingDescription": {
+        "message": "Adjust the empty space above the welcome message",
+        "description": "Description of top page spacing setting"
+    },
+    "pageBottomSpacingTitle": {
+        "message": "Bottom Spacing",
+        "description": "Title for bottom page spacing setting"
+    },
+    "pageBottomSpacingDescription": {
+        "message": "Adjust the empty space below the bookmark area",
+        "description": "Description of bottom page spacing setting"
+    },
     "interfaceElementsTitle": {
         "message": "Interface Elements Display",
         "description": "Interface elements display settings title"

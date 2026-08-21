@@ -641,6 +641,30 @@
         "message": "Ajustar la proporción de ancho del contenedor de marcadores en la página",
         "description": "Descripción de la configuración del ancho del contenedor de marcadores"
     },
+    "containerHeightTitle": {
+        "message": "Alto del contenedor de marcadores",
+        "description": "Título para la configuración del alto del contenedor de marcadores"
+    },
+    "containerHeightDescription": {
+        "message": "Ajustar la proporción de alto del contenedor de marcadores en la página",
+        "description": "Descripción de la configuración del alto del contenedor de marcadores"
+    },
+    "pageTopSpacingTitle": {
+        "message": "Espaciado superior",
+        "description": "Título del espaciado superior de la página"
+    },
+    "pageTopSpacingDescription": {
+        "message": "Ajustar el espacio vacío encima del mensaje de bienvenida",
+        "description": "Descripción del espaciado superior de la página"
+    },
+    "pageBottomSpacingTitle": {
+        "message": "Espaciado inferior",
+        "description": "Título del espaciado inferior de la página"
+    },
+    "pageBottomSpacingDescription": {
+        "message": "Ajustar el espacio vacío debajo del área de marcadores",
+        "description": "Descripción del espaciado inferior de la página"
+    },
     "donateTab": {
         "message": "Apóyanos",
         "description": "Donate tab name in settings"

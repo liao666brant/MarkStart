@@ -11,10 +11,11 @@
 - 页面入口由 [`../../main.ts`](../../main.ts) 的 `import './features/bookmarks/page'` 触发。
 - `root.ts` 导出 `getBookmarksBarId`；`order-sync.ts` 导出 `refreshBookmarkOrder`。
 - `page-parsers.ts` 导出页面所用的存储/消息边界解析器和相关类型。
+- `folder-swiper.ts` 用 Swiper 管理固定目录整屏滑动，并导出当前书签列表查询。
 
 ## 关键依赖与数据
 
-- Chrome `bookmarks`、`storage`、`history`、`tabs` API；`sortablejs` 和 `radashi`。
+- Chrome `bookmarks`、`storage`、`history`、`tabs` API；`sortablejs`、`radashi` 和 `swiper`。
 - `default-folders.ts` 只读写 `chrome.storage.local.defaultFolders`；不要改回 `storage.sync`。
 - `page.ts` 依赖真实页面 DOM、`window` 全局契约及模块加载顺序，避免在未做页面验收时移动其初始化逻辑。
 
@@ -31,9 +32,10 @@
 ## 相关文件清单
 
 - `page.ts`、`page-parsers.ts`、`root.ts`、`order-sync.ts`
-- `default-folders.ts`、`gesture-navigation.ts`
+- `default-folders.ts`、`gesture-navigation.ts`、`folder-swiper.ts`
 - `../../main.ts`、`../../../tests/bookmark-*.test.ts`
 
 ## 变更记录
 
+- 2026-08-21：固定目录切换改为 Swiper 垂直整屏滑动。
 - 2026-08-20：从根级 TypeScript 文件迁入功能目录并建立模块索引。

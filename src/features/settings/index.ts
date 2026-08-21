@@ -1,5 +1,6 @@
 // 导入所需的依赖
 import { ICONS } from '../../shared/icons';
+import { getActiveBookmarksList } from '../bookmarks/folder-swiper';
 
 type Dimension = string | number;
 
@@ -29,7 +30,7 @@ function getStoredDimension(
 ): Dimension {
   const value = result[key];
   if (typeof value === 'string' && value.length > 0) return value;
-  if (typeof value === 'number' && value !== 0) return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
   return defaultValue;
 }
 
@@ -114,6 +115,10 @@ class SettingsManager {
     if (containerWidthSlider) {
       this.initContainerWidthSettings();
     }
+
+    this.initContainerHeightSettings();
+
+    this.initPageSpacingSettings();
     
     // 检查布局设置相关元素
     const showSearchBoxCheckbox = getInput('show-search-box');
@@ -570,7 +575,7 @@ class SettingsManager {
 
   updatePreviewCount(width: Dimension): void {
     // 获取书签列表容器
-    const bookmarksList = document.getElementById('bookmarks-list');
+    const bookmarksList = getActiveBookmarksList();
     if (!bookmarksList) return;
 
     // 确保容器可见
@@ -604,15 +609,11 @@ class SettingsManager {
   updateBookmarkWidth(width: Dimension): void {
     // 更新CSS变量
     document.documentElement.style.setProperty('--bookmark-width', width + 'px');
-    
-    // 更新Grid布局
-    const bookmarksList = document.getElementById('bookmarks-list');
-    if (bookmarksList) {
-      // 使用 minmax 确保最小宽度，但允许在空间足够时扩展
-      bookmarksList.style.gridTemplateColumns = `repeat(auto-fit, minmax(${width}px, 1fr))`;
-      // 设置 gap
-      bookmarksList.style.gap = '1rem';
-    }
+
+    document.querySelectorAll<HTMLElement>('.bookmarks-list').forEach((list) => {
+      list.style.gridTemplateColumns = `repeat(auto-fit, minmax(${width}px, 1fr))`;
+      list.style.gap = '1rem';
+    });
   }
 
   initContainerWidthSettings(): void {
@@ -651,10 +652,63 @@ class SettingsManager {
 
   // 更新书签容器宽度的方法
   updateContainerWidth(widthPercent: Dimension): void {
-    const bookmarksContainer = document.querySelector<HTMLElement>('.bookmarks-container');
-    if (bookmarksContainer) {
-      bookmarksContainer.style.width = `${widthPercent}%`;
+    document.documentElement.style.setProperty('--bookmark-container-width', `${widthPercent}%`);
+    document.querySelectorAll<HTMLElement>('.bookmarks-container').forEach((container) => {
+      container.style.width = `${widthPercent}%`;
+    });
+  }
+
+  initContainerHeightSettings(): void {
+    this.bindPxSlider(
+      'container-height-slider',
+      'container-height-value',
+      'bookmarkContainerHeight',
+      100,
+      (height) => this.updateContainerHeight(height),
+    );
+  }
+
+  updateContainerHeight(heightPercent: Dimension): void {
+    document.documentElement.style.setProperty('--bookmark-container-height', `${heightPercent}%`);
+  }
+
+  initPageSpacingSettings(): void {
+    this.bindPxSlider('page-top-spacing-slider', 'page-top-spacing-value', 'pageTopSpacing', 96, (px) => {
+      document.documentElement.style.setProperty('--page-top-spacing', `${px}px`);
+    });
+    this.bindPxSlider('page-bottom-spacing-slider', 'page-bottom-spacing-value', 'pageBottomSpacing', 32, (px) => {
+      document.documentElement.style.setProperty('--page-bottom-spacing', `${px}px`);
+    });
+  }
+
+  bindPxSlider(
+    sliderId: string,
+    valueId: string,
+    storageKey: string,
+    defaultValue: number,
+    apply: (value: Dimension) => void,
+  ): void {
+    const slider = getInput(sliderId);
+    const valueElement = document.getElementById(valueId);
+    if (!slider || !valueElement) {
+      return;
     }
+
+    chrome.storage.sync.get([storageKey], (result) => {
+      const saved = getStoredDimension(result, storageKey, defaultValue);
+      slider.value = String(saved);
+      valueElement.textContent = String(saved);
+      apply(saved);
+    });
+
+    slider.addEventListener('input', () => {
+      valueElement.textContent = slider.value;
+      apply(slider.value);
+    });
+
+    slider.addEventListener('change', () => {
+      chrome.storage.sync.set({ [storageKey]: slider.value });
+    });
   }
 
   initLayoutSettings(): void {

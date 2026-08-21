@@ -761,6 +761,30 @@
         "message": "調整書籤容器在頁面中的寬度比例",
         "description": "書籤容器寬度設定描述"
     },
+    "containerHeightTitle": {
+        "message": "書籤容器高度",
+        "description": "書籤容器高度設定標題"
+    },
+    "containerHeightDescription": {
+        "message": "調整書籤容器在頁面中的高度比例",
+        "description": "書籤容器高度設定描述"
+    },
+    "pageTopSpacingTitle": {
+        "message": "頂部間距",
+        "description": "頂部間距設定標題"
+    },
+    "pageTopSpacingDescription": {
+        "message": "調整歡迎語上方的空白",
+        "description": "頂部間距設定描述"
+    },
+    "pageBottomSpacingTitle": {
+        "message": "底部間距",
+        "description": "底部間距設定標題"
+    },
+    "pageBottomSpacingDescription": {
+        "message": "調整書籤區域下方的空白",
+        "description": "底部間距設定描述"
+    },
     "donateTab": {
         "message": "讚賞",
         "description": "Donate tab name in settings"

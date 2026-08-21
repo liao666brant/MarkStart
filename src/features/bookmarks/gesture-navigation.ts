@@ -1,4 +1,5 @@
 import { throttle } from 'radashi';
+import { getActiveBookmarksList } from './folder-swiper';
 
 type UpdateDisplay = (folderId: string) => Promise<unknown>;
 type NavigateToParent = (folderId: string) => void;
@@ -130,7 +131,7 @@ function initTouchGestures(navigateToParent: NavigateToParent): void {
         Math.abs(deltaY) < minSwipeDistance / 4 && // 进一步降低垂直容差
         swipeTime > 150 && swipeTime < 1000) { // 扩大时间窗口
       
-      const currentFolderId = document.getElementById('bookmarks-list')?.dataset['parentId'];
+      const currentFolderId = getActiveBookmarksList()?.dataset['parentId'];
       if (currentFolderId && currentFolderId !== '1' && !hasNavigated) {
         navigateToParent(currentFolderId);
         hasNavigated = true;
@@ -172,7 +173,7 @@ function createWheelHandler(navigateToParent: NavigateToParent): (event: WheelEv
       
       if (isWindows && e.deltaMode !== 0) return;
       
-      const currentFolderId = document.getElementById('bookmarks-list')?.dataset['parentId'];
+      const currentFolderId = getActiveBookmarksList()?.dataset['parentId'];
       if (currentFolderId && currentFolderId !== '1') {
         navigateToParent(currentFolderId);
         accumulatedDeltaX = 0;
@@ -201,7 +202,7 @@ function initWindowsTouchpad(navigateToParent: NavigateToParent): void {
     if (Math.abs(deltaX) > MIN_SWIPE_DISTANCE && 
         Math.abs(deltaX) > Math.abs(deltaY) * 2.0 && // 显著增加比率要求
         deltaX < 0) {
-      const currentFolderId = document.getElementById('bookmarks-list')?.dataset['parentId'];
+      const currentFolderId = getActiveBookmarksList()?.dataset['parentId'];
       if (currentFolderId && currentFolderId !== '1') {
         navigateToParent(currentFolderId);
       }

@@ -623,6 +623,30 @@
         "message": "Ajuster la largeur du conteneur de favoris dans la page",
         "description": "Description des paramètres de largeur du conteneur de favoris"
     },
+    "containerHeightTitle": {
+        "message": "Hauteur du conteneur de favoris",
+        "description": "Titre des paramètres de hauteur du conteneur de favoris"
+    },
+    "containerHeightDescription": {
+        "message": "Ajuster la hauteur du conteneur de favoris dans la page",
+        "description": "Description des paramètres de hauteur du conteneur de favoris"
+    },
+    "pageTopSpacingTitle": {
+        "message": "Espacement supérieur",
+        "description": "Titre de l'espacement supérieur de la page"
+    },
+    "pageTopSpacingDescription": {
+        "message": "Ajuster l'espace vide au-dessus du message de bienvenue",
+        "description": "Description de l'espacement supérieur de la page"
+    },
+    "pageBottomSpacingTitle": {
+        "message": "Espacement inférieur",
+        "description": "Titre de l'espacement inférieur de la page"
+    },
+    "pageBottomSpacingDescription": {
+        "message": "Ajuster l'espace vide sous la zone de favoris",
+        "description": "Description de l'espacement inférieur de la page"
+    },
     "donateTab": {
         "message": "Faire un don",
         "description": "Donate tab name in settings"

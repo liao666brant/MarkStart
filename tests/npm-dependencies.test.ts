@@ -32,6 +32,7 @@ test('builds npm runtime dependencies into the extension page bundle', (context)
   assert.ok('qrcode' in dependencies)
   assert.ok('radashi' in dependencies)
   assert.ok('sortablejs' in dependencies)
+  assert.ok('swiper' in dependencies)
 
   const indexHtml = readFileSync(resolve(outputDirectory, 'src/index.html'), 'utf8')
   const bundlePath = /<script type="module" crossorigin src="\/(assets\/[^\"]+\.js)">/.exec(indexHtml)?.[1]
@@ -43,4 +44,5 @@ test('builds npm runtime dependencies into the extension page bundle', (context)
   assert.match(bundle, /debounce/)
   assert.match(bundle, /throttle/)
   assert.match(bundle, /sortable/)
+  assert.match(bundle, /swiper-slide/)
 })

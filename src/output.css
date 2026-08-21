@@ -1165,7 +1165,8 @@ main {
 
 
 /* Flex container for wrapping cards */
-#bookmarks-list {
+#bookmarks-list,
+.bookmarks-list {
   display: grid;
   gap: 1rem;
   margin: 0 auto;
@@ -3675,8 +3676,7 @@ input:checked+.slider:before {
 }
 
 /* 当书签列表处于滚动状态时，让指示器更明显 */
-.bookmarks-list.scrolling ~ .scroll-indicator,
-.bookmarks-container:hover .bookmarks-list.scrolling ~ .scroll-indicator {
+.bookmarks-container:has(.bookmarks-list.scrolling) .scroll-indicator {
   opacity: 0.8;
 }
 

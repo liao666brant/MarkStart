@@ -37,14 +37,15 @@ function findChromiumCandidates() {
     }
   }
 
-  const exeName = isWindows ? 'chrome.exe' : 'chrome';
-  const platformDirs = isWindows
-    ? ['chrome-win64', 'chrome-win', 'chrome-win32']
-    : ['chrome-linux64', 'chrome-linux'];
-
   const found = [];
   for (const root of roots) {
     if (!existsSync(root)) continue;
+    // WSL 下挂载的 /mnt/*/Users/... 目录里是 Windows 布局，需按 chrome-win*/chrome.exe 搜索
+    const windowsLayout = isWindows || root.replace(/\\/g, '/').startsWith('/mnt/');
+    const exeName = windowsLayout ? 'chrome.exe' : 'chrome';
+    const platformDirs = windowsLayout
+      ? ['chrome-win64', 'chrome-win', 'chrome-win32']
+      : ['chrome-linux64', 'chrome-linux'];
     for (const entry of readdirSync(root)) {
       if (!entry.startsWith('chromium-')) continue;
       for (const sub of platformDirs) {

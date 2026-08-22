@@ -73,7 +73,7 @@ localStorage.setItem('userWallpapers', JSON.stringify([{ url: tiny, title: '自�
 
 **上传路径**：canvas 生成图片 → DataTransfer 模拟文件选择 → 触发 `#upload-wallpaper` 的 change 事件；之后检查 `originalWallpaper` 为 `idb:upload-*`、`userWallpapers` 元数据为 `storageKey` 结构、`.wallpaper-option` 数量 = 预设数 + 1。
 
-**Blob 清理**：替换壁纸后用 `getAllKeys()` 检查 IndexedDB 中只剩当前引用对应的键。
+**Blob 清理**：替换壁纸后用 `getAllKeys()` 检查：仍被 `userWallpapers` 引用的 Blob 必须保留且其 Object URL 缩略图可读取；只有已从用户列表移除的引用，对应键才应被清理。
 
 **书签事件驱动同步**：在页面上下文创建/改名书签，800ms 内 UI 应更新（轮询实现要等 30 秒）：
 

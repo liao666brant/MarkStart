@@ -3411,14 +3411,3 @@ function ensureScrollIndicator(bookmarksContainer: HTMLElement, bookmarksList: H
 
   // 初始检查和窗口大小变化时重新检查
 }
-
-// 在DOMContentLoaded事件中调用
-document.addEventListener('DOMContentLoaded', function() {
-
-  const activeContainer = getActiveBookmarksContainer();
-  const activeList = getActiveBookmarksList();
-  if (activeContainer && activeList) ensureScrollIndicator(activeContainer, activeList);
-
-  // 其他初始化代码...
-  startBookmarkSync();
-});

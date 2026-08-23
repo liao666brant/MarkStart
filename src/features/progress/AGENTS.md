@@ -30,4 +30,5 @@
 
 ## 变更记录
 
+- 2026-08-23：DOM 构建从 innerHTML 拼接改为 createElement + textContent（消除 i18n 注入面）。
 - 2026-08-20：进度模块入口收紧为目录 `index.ts`。

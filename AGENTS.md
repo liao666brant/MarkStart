@@ -69,6 +69,7 @@ flowchart TD
 - 在 Chrome API、storage、消息和外部数据边界以 `unknown` 接收并窄化；类型导入使用 `import type`。
 - `src/main.ts` 的副作用导入顺序是页面初始化契约；移动功能文件时同步更新入口与相关测试。
 - 优先最小职责模块；DOM/Chrome 控制器与可单测的纯数据逻辑分离，避免无必要抽象。
+- 页面样式入口是 `src/styles.less`：按原 styles.css 规则顺序连续切分为 `src/styles/*.less`（功能域文件 + `variables.less` 色板），import 顺序即级联顺序，不可随意重排（存在 `body,main` transition 覆盖链等同特异性依赖）；高频色值必须走 `variables.less` 变量。`output.css` 是提交进仓库的 Tailwind 生成产物，仍由 `index.html` 单独引入。
 
 ## AI 使用指引
 
@@ -78,12 +79,13 @@ flowchart TD
 
 ## 变更记录
 
+- 2026-08-23：样式工程化——安装 less，`styles.css`（2023 行）按功能域连续切分为 `src/styles/` 下 13 个 .less + 色板变量，入口 `styles.less`；构建产物与改造前字节级一致（同内容 hash）。
 - 2026-08-23：全仓性能整改——快捷链接缓存顺序修复、书签事件合流与懒渲染、壁纸恢复先行并行与网格懒构建、搜索监听器去重与过期查询丢弃、qrcode 拆按需 chunk、构建期剥离 console.log/debug/info（保留 warn/error）。
 - 2026-08-20：功能与共享代码已按领域目录重组，快捷链接已拆分为职责模块。
 - 2026-08-20：建立初次 AI 上下文索引。
 
 ## 索引状态
-- 上次索引：2026-08-20T02:48:13Z（@abeb7c4）
-- 基线提交：abeb7c45cd584b7d876702f156375dc1a1e9caa1
+- 上次索引：2026-08-23T15:17:22Z（@d885510）
+- 基线提交：d885510f5a7b3b0e05e6ada57bcfd39769906437
 - 已知缺口：未发现
 - 扫描进度：已完成

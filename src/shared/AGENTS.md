@@ -13,12 +13,12 @@
 
 ## 关键依赖与配置
 
-- 国际化消息来自 `src/_locales/zh_CN/messages.json` 和 Chrome i18n。
+- 国际化消息来自 `src/_locales/`（manifest `default_locale` 为 `en`，含 `zh_CN` 在内 9 种语言）与 Chrome i18n。
 - 图标映射是 UI 运行时契约，新增图标时同步使用端并保持 `IconName` 约束。
 
 ## 测试与质量
 
-- `tests/task4-typescript-entry.test.ts` 覆盖图标入口和 SVG 输出。
+- `tests/icons.test.ts` 覆盖图标入口和 SVG 输出。
 - 修改全局声明必须运行 `npm run typecheck`。
 
 ## 常见问题
@@ -29,8 +29,9 @@
 ## 相关文件清单
 
 - `global.d.ts`、`icons.ts`、`localization.ts`、`types.ts`
-- `../main.ts`、`../_locales/zh_CN/messages.json`
+- `../main.ts`、`../_locales/`
 
 ## 变更记录
 
+- 2026-08-23：修正测试引用（task4-typescript-entry 已并入 `tests/icons.test.ts`）与多语言目录描述。
 - 2026-08-20：跨模块文件从根级迁入 `shared`。

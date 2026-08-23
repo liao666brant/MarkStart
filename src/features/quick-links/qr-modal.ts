@@ -1,6 +1,4 @@
-import QRCode from 'qrcode'
-
-export function createQuickLinkQrCode(url: string, bookmarkName: string): void {
+export async function createQuickLinkQrCode(url: string, bookmarkName: string): Promise<void> {
   const modal = document.createElement('div')
   modal.style.position = 'fixed'
   modal.style.left = '0'
@@ -102,7 +100,9 @@ export function createQuickLinkQrCode(url: string, bookmarkName: string): void {
   modal.appendChild(qrContainer)
   document.body.appendChild(modal)
 
-  void QRCode.toCanvas(qrCodeElement, url, { width: 200 }).catch((error: unknown) => {
+  // 懒加载 qrcode，拆出独立 chunk，不进启动 bundle
+  const { default: QRCode } = await import('qrcode')
+  await QRCode.toCanvas(qrCodeElement, url, { width: 200 }).catch((error: unknown) => {
     if (error instanceof Error) {
       console.error('Failed to create QR code:', error)
       return

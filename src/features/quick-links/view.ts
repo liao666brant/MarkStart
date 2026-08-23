@@ -60,7 +60,7 @@ export function renderQuickLinks(
     fragment.appendChild(linkItem)
   })
 
-  const placeholdersNeeded = Math.min(0, 10 - shortcuts.length)
+  const placeholdersNeeded = Math.max(0, 10 - shortcuts.length)
   if (shortcuts.length < 10) {
     for (let index = 0; index < placeholdersNeeded; index += 1) {
       const placeholder = document.createElement('div')

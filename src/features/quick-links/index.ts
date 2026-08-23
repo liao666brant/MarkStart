@@ -71,32 +71,37 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // 如果没有有效缓存，则正常加载
     const fixedShortcuts = await getFixedShortcuts();
-    const blacklist = await getBlacklist();
 
-    // 添加搜索引擎域名到黑名单
-    const searchEngineDomains = [
-      'kimi.moonshot.cn',
-      'www.doubao.com',
-      'chatgpt.com',
-      'felo.ai',
-      'metaso.cn',
-      'www.google.com',
-      'cn.bing.com',
-      'www.baidu.com',
-      'www.sogou.com',
-      'www.so.com',
-      'www.360.cn',
-      'chrome-extension://amkgcblhdallfcijnbmjahooalabjaao'  // 添加扩展自身的URL
-    ];
+    // 仅首次启动时把搜索引擎域名种子写入黑名单；已写入则跳过整段循环
+    if (localStorage.getItem('blacklistSeededV1') !== '1') {
+      const blacklist = await getBlacklist();
 
-    // 将搜索引擎域名添加到黑名单
-    for (const domain of searchEngineDomains) {
-      if (!blacklist.includes(domain)) {
-        await addToBlacklist(domain);
+      // 添加搜索引擎域名到黑名单
+      const searchEngineDomains = [
+        'kimi.moonshot.cn',
+        'www.doubao.com',
+        'chatgpt.com',
+        'felo.ai',
+        'metaso.cn',
+        'www.google.com',
+        'cn.bing.com',
+        'www.baidu.com',
+        'www.sogou.com',
+        'www.so.com',
+        'www.360.cn',
+        'chrome-extension://amkgcblhdallfcijnbmjahooalabjaao'  // 添加扩展自身的URL
+      ];
+
+      // 将搜索引擎域名添加到黑名单
+      for (const domain of searchEngineDomains) {
+        if (!blacklist.includes(domain)) {
+          await addToBlacklist(domain);
+        }
       }
+      localStorage.setItem('blacklistSeededV1', '1');
     }
 
-    // 重新获取更新后的黑名单
+    // 获取（含种子域名的）黑名单
     const updatedBlacklist = await getBlacklist();
 
     const oneMonthAgo = new Date();
@@ -237,10 +242,10 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // 加载缓存（必须先于 generateQuickLinks：否则缓存检查时数据尚未载入，TTL 缓存永远判定无效）
+  quickLinksCache.load();
+
   // 初始化
   generateQuickLinks();
-
-  // 加载缓存
-  quickLinksCache.load();
 
 });

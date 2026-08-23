@@ -29,16 +29,16 @@ export async function pruneDefaultFolders(
 ): Promise<DefaultFolder[]> {
   const { defaultFolders } = await storage.local.get('defaultFolders')
   const folders = Array.isArray(defaultFolders?.items) ? defaultFolders.items : []
-  const validFolders: DefaultFolder[] = []
-
-  for (const folder of folders) {
+  // 逐个串行 await 会把最多 8 次 IPC 排成一条链，并行探测即可
+  const checked = await Promise.all(folders.map(async (folder) => {
     const [bookmark] = await bookmarks.get(folder.id).then(
       ([entry]) => [entry],
       () => [],
     )
 
-    if (bookmark && !bookmark.url) validFolders.push(folder)
-  }
+    return bookmark && !bookmark.url ? folder : null
+  }))
+  const validFolders = checked.filter((folder): folder is DefaultFolder => folder !== null)
 
   if (validFolders.length !== folders.length) {
     await storage.local.set({

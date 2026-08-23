@@ -22,8 +22,9 @@ export function initializeYearProgress(): void {
 
   const yearProgressElement = document.createElement('div')
   yearProgressElement.className = 'year-progress'
-  yearProgressElement.innerHTML = `<span>${currentYear} ${chrome.i18n.getMessage('yearProgress')}</span>`
-  yearProgressElement.appendChild(progressBar)
+  const yearProgressLabel = document.createElement('span')
+  yearProgressLabel.textContent = `${currentYear} ${chrome.i18n.getMessage('yearProgress')}`
+  yearProgressElement.append(yearProgressLabel, progressBar)
 
   const progressPercentage = document.createElement('div')
   progressPercentage.className = 'progress-percentage'

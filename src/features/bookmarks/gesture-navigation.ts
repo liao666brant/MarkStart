@@ -92,6 +92,10 @@ function initTouchGestures(navigateToParent: NavigateToParent): void {
     }
   });
 
+  // 每帧最多写一次 body transform，避免 touchmove 逐事件触发全页重合成
+  let pendingTransformPx: number | null = null;
+  let transformFrame = 0;
+
   document.addEventListener('touchmove', function(e) {
     if (!isTwoFingerSwipe) return;
     const firstTouch = e.touches.item(0);
@@ -101,11 +105,18 @@ function initTouchGestures(navigateToParent: NavigateToParent): void {
 
     const currentX = (firstTouch.clientX + secondTouch.clientX) / 2;
     const deltaX = currentX - touchStartX;
-    
+
     // 进一步降低跟手程度
     if (deltaX > 0) {
-      const transform = Math.min(deltaX / 6, 150); // 大幅降低位移比例，增加最大位移
-      document.body.style.transform = `translateX(${transform}px)`;
+      pendingTransformPx = Math.min(deltaX / 6, 150); // 大幅降低位移比例，增加最大位移
+      if (transformFrame === 0) {
+        transformFrame = requestAnimationFrame(() => {
+          transformFrame = 0;
+          if (pendingTransformPx !== null) {
+            document.body.style.transform = `translateX(${pendingTransformPx}px)`;
+          }
+        });
+      }
     }
   }, { passive: false });
 
@@ -123,6 +134,11 @@ function initTouchGestures(navigateToParent: NavigateToParent): void {
     const deltaY = touchEndY - touchStartY;
     const swipeTime = Date.now() - swipeStartTime;
 
+    if (transformFrame !== 0) {
+      cancelAnimationFrame(transformFrame);
+      transformFrame = 0;
+    }
+    pendingTransformPx = null;
     document.body.style.transition = 'transform 0.3s';
     document.body.style.transform = '';
 

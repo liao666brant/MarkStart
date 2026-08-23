@@ -1,12 +1,10 @@
-import QRCode from 'qrcode'
-
 import type { GetLocalizedMessage } from '../../shared/types'
 
-export function createBookmarkQrCode(
+export async function createBookmarkQrCode(
   url: string,
   bookmarkName: string,
   getLocalizedMessage: GetLocalizedMessage,
-): void {
+): Promise<void> {
   const modal = document.createElement('div')
   modal.style.position = 'fixed'
   modal.style.left = '0'
@@ -110,7 +108,9 @@ export function createBookmarkQrCode(
   modal.appendChild(container)
   document.body.appendChild(modal)
 
-  void QRCode.toCanvas(canvas, url, { width: 200 }).catch((error: unknown) => {
+  // 懒加载 qrcode，拆出独立 chunk，不进启动 bundle
+  const { default: QRCode } = await import('qrcode')
+  await QRCode.toCanvas(canvas, url, { width: 200 }).catch((error: unknown) => {
     console.error('Failed to create QR code:', error)
   })
 

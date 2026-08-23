@@ -401,20 +401,38 @@ function createSearchEngineDropdown(): void {
   }
 }
 
-// 新增下拉菜单 UI 创建函数
+// 新增下拉菜单 UI 创建函数（容器与监听器只创建/绑定一次，重建时仅重填选项内容）
 function createDropdownUI(): void {
   // 将原来 createSearchEngineDropdown 中的 UI 创建代码移到这里
-  const existingDropdown = document.querySelector('.search-engine-dropdown');
-  if (existingDropdown) {
-    existingDropdown.remove();
-  }
-  
   const searchForm = document.querySelector<HTMLElement>('.search-form');
   const iconContainer = document.querySelector<HTMLElement>('.search-icon-container');
   if (!searchForm || !iconContainer) return;
-  const dropdownContainer = document.createElement('div');
-  dropdownContainer.className = 'search-engine-dropdown';
+
+  let dropdownContainer = document.querySelector<HTMLElement>('.search-engine-dropdown');
+  if (!dropdownContainer) {
+    const created = document.createElement('div');
+    created.className = 'search-engine-dropdown';
+    created.style.display = 'none';
+    searchForm.appendChild(created);
+
+    // 事件监听器只绑定一次，避免下拉菜单重建时在 iconContainer 和 document 上累积
+    iconContainer.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isVisible = created.style.display === 'block';
+      created.style.display = isVisible ? 'none' : 'block';
+    });
+
+    // 点击其他区域时关闭下拉菜单
+    document.addEventListener('click', () => {
+      created.style.display = 'none';
+    });
+
+    dropdownContainer = created;
+  }
+
+  // 重填选项内容
   dropdownContainer.style.display = 'none';
+  dropdownContainer.innerHTML = '';
 
   // 创建选项容器
   const optionsContainer = document.createElement('div');
@@ -433,20 +451,7 @@ function createDropdownUI(): void {
   const addOption = createSearchEngineOption(null, true);
   optionsContainer.appendChild(addOption);
 
-  // 添加事件监听器
-  iconContainer.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const isVisible = dropdownContainer.style.display === 'block';
-    dropdownContainer.style.display = isVisible ? 'none' : 'block';
-  });
-
-  // 点击其他区域时关闭下拉菜单
-  document.addEventListener('click', () => {
-    dropdownContainer.style.display = 'none';
-  });
-
   dropdownContainer.appendChild(optionsContainer);
-  searchForm.appendChild(dropdownContainer);
 }
 
 // 添加显示搜索引擎对话框的函数
@@ -479,12 +484,12 @@ function showSearchEnginesDialog(): void {
     }
   };
 
-  // 阻止对话框内容区域的点击事件冒泡
-  const modalContent = dialog.querySelector('.modal-content');
+  // 阻止对话框内容区域的点击事件冒泡（onclick 赋值，重复打开对话框不再累积监听器）
+  const modalContent = dialog.querySelector<HTMLElement>('.modal-content');
   if (modalContent) {
-    modalContent.addEventListener('click', (e) => {
+    modalContent.onclick = (e) => {
       e.stopPropagation();
-    });
+    };
   }
 }
 
@@ -596,15 +601,29 @@ function createSearchEnginesList(): void {
 }
 
 // 处理搜索引擎启用/禁用
+// 引擎开关/增删后的下拉与标签栏重建：连续勾选时防抖合并为一次，
+// 避免每勾选一个引擎就全量重建两套 DOM
+let engineUiRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+function scheduleEngineUiRefresh(): void {
+  if (engineUiRefreshTimer !== undefined) {
+    clearTimeout(engineUiRefreshTimer);
+  }
+  engineUiRefreshTimer = setTimeout(() => {
+    engineUiRefreshTimer = undefined;
+    createSearchEngineDropdown();
+    createTemporarySearchTabs();
+  }, 300);
+}
+
 function handleEngineToggle(engine: SearchEngine, enabled: boolean): void {
   if (enabled) {
     SearchEngineManager.addEngine(engine.name);
   } else {
     SearchEngineManager.removeEngine(engine.name);
   }
-  // 更新下拉菜单和临时搜索标签
-  createSearchEngineDropdown();
-  createTemporarySearchTabs();
+  // 更新下拉菜单和临时搜索标签（防抖合并连续勾选）
+  scheduleEngineUiRefresh();
 }
 
 // 修改 initCustomEngineForm 函数
@@ -727,9 +746,8 @@ function generateTextIcon(name: string): string {
     </svg>
   `;
 
-  // 转换 SVG 为 data URL
-  const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
-  return URL.createObjectURL(svgBlob);
+  // 转换 SVG 为 data URL（避免创建永不 revoke 的 Blob URL 导致内存泄漏）
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
 // 修改 getFavicon 函数
@@ -743,19 +761,20 @@ async function getFavicon(url: string): Promise<string | null> {
       `https://${domain}/favicon.ico`
     ];
 
-    // 测试图标是否可用
-    for (const src of iconSources) {
-      try {
+    // 并发竞速：任一来源可用即采用；全部失败（AggregateError）走现有文本图标兜底
+    try {
+      return await Promise.any(iconSources.map(async (src) => {
         const response = await fetch(src);
-        if (response.ok) {
-          return src;
+        if (!response.ok) {
+          throw new Error(`Icon source unavailable: ${src}`);
         }
-      } catch (error) {
-        if (error instanceof TypeError) continue;
-        throw error;
-      }
+        return src;
+      }));
+    } catch (error) {
+      if (error instanceof AggregateError) return null;
+      throw error;
     }
-    
+
     // 如果所有图标源都失败，返回文本图标
     return null;
   } catch (error) {
@@ -901,28 +920,28 @@ function refreshCustomEngines(): void {
   });
 }
 
-// 创建新的初始化函数
+// 创建新的初始化函数（用 onclick 赋值绑定，避免与 showSearchEnginesDialog 的重复注册叠加）
 function initializeSearchEngineDialog(): void {
   const dialog = document.querySelector<HTMLElement>('#search-engines-dialog');
   if (dialog) {
     const closeButton = dialog.querySelector<HTMLElement>('.close-button');
     if (closeButton) {
-      closeButton.addEventListener('click', () => {
+      closeButton.onclick = () => {
         dialog.style.display = 'none';
-      });
+      };
     }
-    
-    dialog.addEventListener('click', (e) => {
+
+    dialog.onclick = (e) => {
       if (e.target === dialog) {
         dialog.style.display = 'none';
       }
-    });
+    };
 
-    const modalContent = dialog.querySelector('.modal-content');
+    const modalContent = dialog.querySelector<HTMLElement>('.modal-content');
     if (modalContent) {
-      modalContent.addEventListener('click', (e) => {
+      modalContent.onclick = (e) => {
         e.stopPropagation();
-      });
+      };
     }
   }
 

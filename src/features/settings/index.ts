@@ -35,24 +35,39 @@ function getStoredDimension(
   return defaultValue;
 }
 
+function coalesceInputFrame(apply: () => void): () => void {
+  let frame: number | null = null;
+  const run = (): void => {
+    frame = null;
+    apply();
+  };
+  return () => {
+    if (frame !== null) {
+      return;
+    }
+    frame = requestAnimationFrame(run);
+  };
+}
+
 // 设置管理器类
 // allow: SIZE_OK — 行为保持型 TypeScript 迁移保留既有单一设置控制器，拆分会扩大本任务的回归面。
 class SettingsManager {
-  private readonly settingsSidebar: HTMLElement | null;
-  private readonly settingsIcon: HTMLAnchorElement | null;
-  private readonly closeButton: HTMLElement | null;
-  private readonly tabButtons: NodeListOf<HTMLElement>;
-  private readonly tabContents: NodeListOf<HTMLElement>;
-  private readonly bgOptions: NodeListOf<HTMLElement>;
-  private readonly enableQuickLinksCheckbox: HTMLInputElement | null;
-  private readonly openInNewTabCheckbox: HTMLInputElement | null;
-  private widthSlider: HTMLInputElement | null;
-  private widthValue: HTMLElement | null;
-  private widthPreviewCount: HTMLElement | null;
-  private showHistorySuggestionsCheckbox: HTMLInputElement | null;
-  private showBookmarkSuggestionsCheckbox: HTMLInputElement | null;
-  private readonly enableWheelSwitchingCheckbox: HTMLInputElement | null;
-  private openSearchInNewTabCheckbox: HTMLInputElement | null;
+  private settingsSidebar: HTMLElement | null = null;
+  private settingsIcon: HTMLAnchorElement | null = null;
+  private closeButton: HTMLElement | null = null;
+  private tabButtons: NodeListOf<HTMLElement> | null = null;
+  private tabContents: NodeListOf<HTMLElement> | null = null;
+  private bgOptions: NodeListOf<HTMLElement> | null = null;
+  private enableQuickLinksCheckbox: HTMLInputElement | null = null;
+  private openInNewTabCheckbox: HTMLInputElement | null = null;
+  private widthSlider: HTMLInputElement | null = null;
+  private widthValue: HTMLElement | null = null;
+  private widthPreviewCount: HTMLElement | null = null;
+  private showHistorySuggestionsCheckbox: HTMLInputElement | null = null;
+  private showBookmarkSuggestionsCheckbox: HTMLInputElement | null = null;
+  private enableWheelSwitchingCheckbox: HTMLInputElement | null = null;
+  private openSearchInNewTabCheckbox: HTMLInputElement | null = null;
+  private bookmarksLists: HTMLElement[] = [];
   private heightSlider: HTMLInputElement | null = null;
   private heightValue: HTMLElement | null = null;
   private containerWidthSlider: HTMLInputElement | null = null;
@@ -65,7 +80,23 @@ class SettingsManager {
   private showPasswordsLinkCheckbox: HTMLInputElement | null = null;
   private showExtensionsLinkCheckbox: HTMLInputElement | null = null;
 
+  private initialized = false;
+  private themeIconIsDark: boolean | null = null;
+
   constructor() {
+    // 设置侧栏非首屏必需：把 DOM 查询、绑定与配置读取推迟到浏览器空闲时执行
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(() => this.init(), { timeout: 2000 });
+    } else {
+      setTimeout(() => this.init(), 0);
+    }
+  }
+
+  // 幂等初始化：空闲回调与用户提前打开侧栏两条路径只生效一次，避免重复绑定监听
+  init() {
+    if (this.initialized) return;
+    this.initialized = true;
+    // DOM 查询统一延迟到空闲回调，构造期只负责调度初始化
     this.settingsSidebar = document.getElementById('settings-sidebar');
     this.settingsIcon = document.querySelector<HTMLAnchorElement>('.settings-icon a');
     this.closeButton = document.querySelector('.settings-sidebar-close');
@@ -83,15 +114,6 @@ class SettingsManager {
     this.enableWheelSwitchingCheckbox = getInput('enable-wheel-switching');
     this.openSearchInNewTabCheckbox = getInput('open-search-in-new-tab');
 
-    // 设置侧栏非首屏必需：把 DOM 绑定与配置读取推迟到浏览器空闲时执行
-    if (typeof requestIdleCallback === 'function') {
-      requestIdleCallback(() => this.init(), { timeout: 2000 });
-    } else {
-      setTimeout(() => this.init(), 0);
-    }
-  }
-
-  init() {
     this.loadSavedSettings();
     this.initEventListeners();
     this.initTheme();
@@ -181,7 +203,7 @@ class SettingsManager {
     }
 
     // 标签切换
-    this.tabButtons.forEach(button => {
+    this.tabButtons?.forEach(button => {
       button.addEventListener('click', () => {
         const tabName = button.getAttribute('data-tab');
         this.switchTab(tabName);
@@ -189,7 +211,7 @@ class SettingsManager {
     });
 
     // 背景颜色选择
-    this.bgOptions.forEach(option => {
+    this.bgOptions?.forEach(option => {
       option.addEventListener('click', () => this.handleBackgroundChange(option));
     });
 
@@ -234,6 +256,10 @@ class SettingsManager {
 
   // 打开设置侧边栏
   openSettingsSidebar(): void {
+    // 空闲初始化完成前用户就打开侧栏时同步补初始化，避免点击静默失效
+    if (!this.settingsSidebar) {
+      this.init();
+    }
     if (this.settingsSidebar) {
       this.settingsSidebar.classList.add('open');
       document.getElementById('settings-overlay')?.classList.add('open');
@@ -253,12 +279,12 @@ class SettingsManager {
   switchTab(tabName: string | null): void {
     if (!tabName) return;
     // 移除所有标签的 active 类
-    this.tabButtons.forEach(button => {
+    this.tabButtons?.forEach(button => {
       button.classList.remove('active');
     });
 
     // 移除所有内容的 active 类
-    this.tabContents.forEach(content => {
+    this.tabContents?.forEach(content => {
       content.classList.remove('active');
     });
 
@@ -284,7 +310,7 @@ class SettingsManager {
     if (!bgClass) return;
 
     // 移除所有背景选项的 active 状态
-    this.bgOptions.forEach(opt => opt.classList.remove('active'));
+    this.bgOptions?.forEach(opt => opt.classList.remove('active'));
 
     // 添加当前选项的 active 状态
     option.classList.add('active');
@@ -326,7 +352,7 @@ class SettingsManager {
     const savedBg = localStorage.getItem('selectedBackground');
     if (savedBg) {
       document.documentElement.className = savedBg;
-      this.bgOptions.forEach(option => {
+      this.bgOptions?.forEach(option => {
         if (option.getAttribute('data-bg') === savedBg) {
           option.classList.add('active');
         }
@@ -351,7 +377,7 @@ class SettingsManager {
     }
 
     // 监听系统主题变化
-    window.matchMedia('(prefers-color-scheme: dark)').addListener((e) => {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
       if (localStorage.getItem('theme') === 'auto') {
         const isDark = e.matches;
         document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
@@ -398,7 +424,9 @@ class SettingsManager {
   updateThemeIcon(isDark: boolean): void {
     const themeToggleBtn = document.getElementById('theme-toggle-btn');
     if (!themeToggleBtn) return;
-
+    // 图标未变化时不重写 innerHTML，避免每次主题切换重建 SVG 节点
+    if (this.themeIconIsDark === isDark) return;
+    this.themeIconIsDark = isDark;
     themeToggleBtn.innerHTML = isDark ? ICONS.dark_mode : ICONS.light_mode;
   }
 
@@ -444,13 +472,7 @@ class SettingsManager {
   }
 
   initWheelSwitchingTab(stored: StoredSettings): void {
-    const tabButton = document.querySelector('[data-tab="wheel-switching"]');
-    if (tabButton) {
-      tabButton.addEventListener('click', () => {
-        this.switchTab('wheel-switching');
-      });
-    }
-
+    // 标签按钮的 click 已由 initEventListeners 的通用 .settings-tab-button 绑定处理，这里不再重复绑定
     const checkbox = this.enableWheelSwitchingCheckbox;
     if (!checkbox) return;
 
@@ -499,13 +521,13 @@ class SettingsManager {
     this.updatePreviewCount(savedWidth);
     this.updateBookmarkWidth(savedWidth);
 
-    // 监听滑块的变化
-    slider.addEventListener('input', () => {
+    // 监听滑块的变化：拖动为高频事件，用 rAF 合帧，一帧最多执行一次预览与宽度更新
+    slider.addEventListener('input', coalesceInputFrame(() => {
       const width = slider.value;
       valueElement.textContent = width;
       this.updatePreviewCount(width);
       this.updateBookmarkWidth(width);
-    });
+    }));
 
     // 监听滑块的鼠标释放事件
     slider.addEventListener('mouseup', () => {
@@ -513,8 +535,11 @@ class SettingsManager {
       chrome.storage.sync.set({ bookmarkWidth: slider.value });
     });
 
-    // 添加窗口大小改变的监听
+    // 添加窗口大小改变的监听：侧栏未打开时无需刷新预览
     const debouncedUpdate = this.debounce(() => {
+      if (!this.settingsSidebar || !this.settingsSidebar.classList.contains('open')) {
+        return;
+      }
       this.updatePreviewCount(slider.value);
     }, 250);
     window.addEventListener('resize', debouncedUpdate);
@@ -538,12 +563,12 @@ class SettingsManager {
     valueElement.textContent = String(savedHeight);
     this.updateCardHeight(savedHeight);
 
-    // 监听滑块的变化
-    slider.addEventListener('input', () => {
+    // 监听滑块的变化：与宽度滑块一致，用 rAF 合帧避免高频样式重算
+    slider.addEventListener('input', coalesceInputFrame(() => {
       const height = slider.value;
       valueElement.textContent = height;
       this.updateCardHeight(height);
-    });
+    }));
 
     // 监听滑块的鼠标释放事件
     slider.addEventListener('mouseup', () => {
@@ -575,14 +600,12 @@ class SettingsManager {
     const bookmarksList = getActiveBookmarksList();
     if (!bookmarksList) return;
 
-    // 确保容器可见
+    // 单次读取计算样式即可：padding 与 display 无关，offsetWidth 也只读一次复用
     const originalDisplay = bookmarksList.style.display;
-    if (getComputedStyle(bookmarksList).display === 'none') {
+    const containerStyle = getComputedStyle(bookmarksList);
+    if (containerStyle.display === 'none') {
       bookmarksList.style.display = 'grid';
     }
-
-    // 获取容器的实际可用宽度
-    const containerStyle = getComputedStyle(bookmarksList);
     const containerWidth = bookmarksList.offsetWidth
       - parseFloat(containerStyle.paddingLeft)
       - parseFloat(containerStyle.paddingRight);
@@ -603,14 +626,24 @@ class SettingsManager {
     if (this.widthPreviewCount) this.widthPreviewCount.textContent = previewText;
   }
 
+  // 缓存 .bookmarks-list 引用：folder swiper 重建会替换列表节点，缓存失联时才重新查询
+  private getBookmarksLists(): HTMLElement[] {
+    const cached = this.bookmarksLists;
+    if (cached.length > 0 && cached.every((list) => list.isConnected)) {
+      return cached;
+    }
+    this.bookmarksLists = Array.from(document.querySelectorAll<HTMLElement>('.bookmarks-list'));
+    return this.bookmarksLists;
+  }
+
   updateBookmarkWidth(width: Dimension): void {
     // 更新CSS变量
     document.documentElement.style.setProperty('--bookmark-width', width + 'px');
 
-    document.querySelectorAll<HTMLElement>('.bookmarks-list').forEach((list) => {
+    for (const list of this.getBookmarksLists()) {
       list.style.gridTemplateColumns = `repeat(auto-fit, minmax(${width}px, 1fr))`;
       list.style.gap = '1rem';
-    });
+    }
   }
 
   initContainerWidthSettings(stored: StoredSettings): void {
@@ -872,18 +905,27 @@ class SettingsManager {
     bookmarkCheckbox.checked = getStoredBoolean(stored, 'showBookmarkSuggestions', true);
     newTabCheckbox.checked = getStoredBoolean(stored, 'openSearchInNewTab', true);
 
-    // 初始化时如果是新用户(设置不存在),则保存默认值
+    // 初始化时如果是新用户(设置不存在),则保存默认值：缺失项合并为一次写入
+    const defaults: {
+      showHistorySuggestions?: boolean;
+      showBookmarkSuggestions?: boolean;
+      showSearchBox?: boolean;
+      openSearchInNewTab?: boolean;
+    } = {};
     if (!Object.hasOwn(stored, 'showHistorySuggestions')) {
-      chrome.storage.sync.set({ showHistorySuggestions: true });
+      defaults.showHistorySuggestions = true;
     }
     if (!Object.hasOwn(stored, 'showBookmarkSuggestions')) {
-      chrome.storage.sync.set({ showBookmarkSuggestions: true });
+      defaults.showBookmarkSuggestions = true;
     }
     if (!Object.hasOwn(stored, 'showSearchBox')) {
-      chrome.storage.sync.set({ showSearchBox: false });
+      defaults.showSearchBox = false;
     }
     if (!Object.hasOwn(stored, 'openSearchInNewTab')) {
-      chrome.storage.sync.set({ openSearchInNewTab: true });
+      defaults.openSearchInNewTab = true;
+    }
+    if (Object.keys(defaults).length > 0) {
+      chrome.storage.sync.set(defaults);
     }
 
     // 监听设置变化

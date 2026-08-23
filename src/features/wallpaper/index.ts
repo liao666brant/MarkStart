@@ -15,26 +15,49 @@ type UserWallpaperRef = {
 };
 
 type BingWallpaper = {
+    // UHD 原图，仅在用户设为壁纸时使用
     readonly url: string;
+    // 低分辨率缩略图，设置面板网格展示使用
+    readonly thumbnail: string;
     readonly title: string;
     readonly copyright: string;
     readonly date: string;
-};
-
-type OnlineWallpaper = {
-    readonly url: string;
-    readonly thumbnail: string;
-};
-
-type ScreenResolution = {
-    readonly width: number;
-    readonly height: number;
 };
 
 declare global {
     interface Window {
         WallpaperManager: typeof WallpaperManager;
     }
+}
+
+// 必应壁纸元数据按日缓存与失败退避所用的存储键与时间参数
+const BING_WALLPAPERS_CACHE_KEY = 'bingWallpapersCache';
+const BING_FETCH_FAILURE_KEY = 'bingWallpaperFetchFailedAt';
+const BING_FETCH_TIMEOUT_MS = 8000;
+const BING_FETCH_RETRY_INTERVAL_MS = 30 * 60 * 1000;
+
+function localDateStamp(): string {
+    const now = new Date();
+    const month = `${now.getMonth() + 1}`.padStart(2, '0');
+    const day = `${now.getDate()}`.padStart(2, '0');
+    return `${now.getFullYear()}-${month}-${day}`;
+}
+
+// 缓存条目按 unknown 读回，逐字段窄化后再进入内存
+function normalizeCachedBingWallpaper(entry: unknown): BingWallpaper | null {
+    if (typeof entry !== 'object' || entry === null) return null;
+    if (!('url' in entry) || typeof entry.url !== 'string') return null;
+    if (!('thumbnail' in entry) || typeof entry.thumbnail !== 'string') return null;
+    if (!('title' in entry) || typeof entry.title !== 'string') return null;
+    if (!('copyright' in entry) || typeof entry.copyright !== 'string') return null;
+    if (!('date' in entry) || typeof entry.date !== 'string') return null;
+    return {
+        url: entry.url,
+        thumbnail: entry.thumbnail,
+        title: entry.title,
+        copyright: entry.copyright,
+        date: entry.date
+    };
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -48,35 +71,39 @@ document.addEventListener('DOMContentLoaded', () => {
 // WallpaperManager 类用于处理所有壁纸相关的操作
 export class WallpaperManager {
     private readonly uploadInput: HTMLInputElement | null;
-    private readonly mainElement: HTMLElement | null;
     private presetWallpapers: readonly WallpaperPreset[] = [];
-    private readonly preloadQueue = new Set<string>();
-    private readonly preloadedImages = new Map<string, HTMLImageElement>();
     private userWallpaperRefs: UserWallpaperRef[] = [];
     private readonly objectUrls = new Map<string, string>();
     private bingWallpapers: readonly BingWallpaper[] = [];
-    private readonly onlineWallpapers: readonly OnlineWallpaper[] = [];
+    private readonly userWallpapersReady: Promise<void>;
+    // 数据级选中值：启动路径只记录，设置面板网格真正构建时再应用高亮
+    private selectedWallpaperKey: string | null = null;
+    private settingsGridPromise: Promise<void> | null = null;
 
     constructor() {
         // 首先初始化所有必要的属性
         this.uploadInput = document.querySelector<HTMLInputElement>('#upload-wallpaper');
-        this.mainElement = document.querySelector<HTMLElement>('main');
+
+        // 用户壁纸元数据加载与壁纸恢复并行执行；设置面板网格构建前必须等待其完成
+        this.userWallpapersReady = this.loadUserWallpapers();
 
         // 初始化预设壁纸列表与事件监听
         this.initializePresetWallpapers();
         this.initializeEventListeners();
+        this.setupLazySettingsGrid();
 
-        // 用户壁纸迁移、渲染与恢复依赖 IndexedDB，异步执行
+        // 壁纸恢复依赖 IndexedDB，异步执行
         void this.bootstrap();
     }
 
+    // 壁纸恢复只依赖 localStorage 与单次 IndexedDB 读取，与用户壁纸元数据加载并行执行
     private async bootstrap(): Promise<void> {
-        await this.loadUserWallpapers();
-        this.preloadWallpapers();
-        await this.loadPresetWallpapers();
-        await this.initializeWallpaper();
-        document.documentElement.classList.remove('loading-wallpaper');
-        await this.initBingWallpapers();
+        try {
+            await Promise.all([this.userWallpapersReady, this.initializeWallpaper()]);
+        } finally {
+            // 恢复成功与失败都必须解除首屏门控，避免页面挂死
+            document.documentElement.classList.remove('loading-wallpaper');
+        }
     }
 
     // 新增方法：初始化预设壁纸列表
@@ -136,32 +163,66 @@ export class WallpaperManager {
         wallpaperContainer.innerHTML = '';
 
         // 添加预设壁纸
-        if (Array.isArray(this.presetWallpapers)) {
-            this.presetWallpapers.forEach(preset => {
-                const option = this.createWallpaperOption(preset.url, preset.title);
-                wallpaperContainer.appendChild(option);
-            });
+        for (const preset of this.presetWallpapers) {
+            wallpaperContainer.appendChild(this.createWallpaperOption(preset.url, preset.title));
         }
 
-        // 添加用户上传的壁纸
-        if (Array.isArray(this.userWallpaperRefs)) {
-            for (const ref of this.userWallpaperRefs) {
+        // 添加用户上传的壁纸；IndexedDB 引用并行解析，单条失败跳过且不打断其余渲染
+        const uploadedOptions = await Promise.all(
+            this.userWallpaperRefs.map(async (ref) => {
                 try {
                     const displayUrl = await this.resolveDisplayUrl(ref.storageKey);
-                    const option = this.createWallpaperOption(
+                    return this.createWallpaperOption(
                         displayUrl,
                         chrome.i18n.getMessage('uploadedWallpaperBadge'),
                         true,
                         ref.storageKey,
                     );
-                    wallpaperContainer.appendChild(option);
                 } catch (error) {
                     console.warn('跳过无法加载的用户壁纸:', error instanceof Error ? error : String(error));
+                    return null;
                 }
+            })
+        );
+        for (const option of uploadedOptions) {
+            if (option) {
+                wallpaperContainer.appendChild(option);
             }
         }
     }
 
+    // 设置侧栏有两个打开入口：设置图标点击与 markstart:open-settings 事件；首次触发时才构建壁纸网格
+    private setupLazySettingsGrid(): void {
+        const build = (): void => {
+            document.removeEventListener('click', onSettingsLinkClick, true);
+            document.removeEventListener('markstart:open-settings', onOpenSettingsEvent);
+            void this.buildSettingsWallpaperGrids();
+        };
+        const onSettingsLinkClick = (event: Event): void => {
+            if (event.target instanceof Element && event.target.closest('#settings-link')) {
+                build();
+            }
+        };
+        const onOpenSettingsEvent = (): void => {
+            build();
+        };
+        // capture 阶段监听，确保先于设置模块在链接元素上的 stopPropagation 执行
+        document.addEventListener('click', onSettingsLinkClick, true);
+        document.addEventListener('markstart:open-settings', onOpenSettingsEvent);
+    }
+
+    // 一次性构建设置面板的预设壁纸网格与必应壁纸网格
+    private buildSettingsWallpaperGrids(): Promise<void> {
+        if (!this.settingsGridPromise) {
+            this.settingsGridPromise = (async () => {
+                await this.userWallpapersReady;
+                await this.loadPresetWallpapers();
+                this.highlightSelectedWallpaperOption();
+                await this.initBingWallpapers();
+            })();
+        }
+        return this.settingsGridPromise;
+    }
 
     private initializeEventListeners(): void {
         // 初始化上传事件监听
@@ -180,13 +241,6 @@ export class WallpaperManager {
         document.querySelectorAll('.settings-bg-option').forEach(option => {
             option.addEventListener('click', () => {
                 this.handleBackgroundOptionClick(option);
-            });
-        });
-
-        // 壁纸选项的点击事件
-        document.querySelectorAll('.wallpaper-option').forEach(option => {
-            option.addEventListener('click', () => {
-                void this.handleWallpaperOptionClick(option);
             });
         });
     }
@@ -249,22 +303,6 @@ export class WallpaperManager {
         });
     }
 
-    // 优化预加载方法
-    private preloadWallpapers(): void {
-        this.presetWallpapers.forEach(preset => {
-            if (!this.preloadedImages.has(preset.url)) {
-                const img = new Image();
-                img.src = preset.url;
-                this.preloadQueue.add(preset.url);
-
-                img.onload = () => {
-                    this.preloadedImages.set(preset.url, img);
-                    this.preloadQueue.delete(preset.url);
-                };
-            }
-        });
-    }
-
     // 初始化壁纸状态
     private async initializeWallpaper(): Promise<void> {
         let savedWallpaper = localStorage.getItem('originalWallpaper');
@@ -297,19 +335,9 @@ export class WallpaperManager {
             // 旧版把 dataURL 整串写进 localStorage，首次启动时迁移为 IndexedDB Blob 引用
             savedWallpaper = await this.migrateLegacyStoredWallpaper(savedWallpaper);
 
-            // 如果使用壁纸，查找对应的选项（包括用户上传的壁纸）
-            let wallpaperOption = document.querySelector(`.wallpaper-option[data-wallpaper-url="${CSS.escape(savedWallpaper)}"]`);
-
-            // 如果找不到对应选项，可能是用户上传的壁纸
-            if (!wallpaperOption) {
-                // 重新加载壁纸选项
-                await this.loadPresetWallpapers();
-                wallpaperOption = document.querySelector(`.wallpaper-option[data-wallpaper-url="${CSS.escape(savedWallpaper)}"]`);
-            }
-
-            if (wallpaperOption) {
-                wallpaperOption.classList.add('active');
-            }
+            // 记录数据级选中值，网格真正构建时再对比预设列表与用户壁纸引用应用高亮；
+            // 启动路径不为高亮强制构建网格
+            this.selectedWallpaperKey = savedWallpaper;
 
             try {
                 const displayUrl = await this.resolveDisplayUrl(savedWallpaper);
@@ -327,6 +355,7 @@ export class WallpaperManager {
     }
 
     private applyDefaultBackground(): void {
+        this.selectedWallpaperKey = null;
         const defaultBgOption = document.querySelector('.settings-bg-option[data-bg="gradient-background-7"]');
         if (defaultBgOption) {
             defaultBgOption.classList.add('active');
@@ -356,17 +385,15 @@ export class WallpaperManager {
         alert(chrome.i18n.getMessage('wallpaperResetSuccess'));
     }
 
-    // 清除壁纸样式
+    // 清除壁纸样式；单一绘制层只需清理 body
     private clearWallpaper(): void {
+        this.selectedWallpaperKey = null;
         document.body.classList.remove('has-wallpaper');
         document.body.style.removeProperty('--wallpaper-image');
         document.body.style.backgroundImage = 'none';
-        if (this.mainElement) {
-            this.mainElement.style.backgroundImage = 'none';
-        }
     }
 
-    // 修改应用壁纸方法
+    // 修改应用壁纸方法：壁纸只绘制在 body 一层（浅色走 body inline，深色由 CSS 变量规则绘制）
     private async applyWallpaper(url: string): Promise<void> {
         const backgroundStyle = {
             backgroundImage: `url("${url}")`,
@@ -380,9 +407,6 @@ export class WallpaperManager {
         requestAnimationFrame(() => {
             document.body.classList.add('has-wallpaper');
             document.body.style.setProperty('--wallpaper-image', `url("${url}")`);
-            if (this.mainElement) {
-                Object.assign(this.mainElement.style, backgroundStyle);
-            }
             Object.assign(document.body.style, backgroundStyle);
 
             // 更新欢迎消息颜色
@@ -421,6 +445,7 @@ export class WallpaperManager {
 
         // 先写入新值再清理旧键，写入失败时旧引用保持不变
         localStorage.setItem('originalWallpaper', source);
+        this.selectedWallpaperKey = source;
         localStorage.removeItem('selectedWallpaper');
         localStorage.removeItem('wallpaperThumbnail');
         localStorage.removeItem('useDefaultBackground');
@@ -531,28 +556,7 @@ export class WallpaperManager {
         });
     }
 
-    // 创建缩略图
-    createThumbnail(dataUrl: string, callback: (thumbnailDataUrl: string) => void): void {
-        const img = new Image();
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            const thumbnailSize = { width: 200, height: 200 };
-
-            canvas.width = thumbnailSize.width;
-            canvas.height = thumbnailSize.height;
-            if (!ctx) {
-                return;
-            }
-            ctx.drawImage(img, 0, 0, thumbnailSize.width, thumbnailSize.height);
-
-            const thumbnailDataUrl = canvas.toDataURL('image/jpeg', 0.7);
-            callback(thumbnailDataUrl);
-        };
-        img.src = dataUrl;
-    }
-
-    // 处理文件上传
+    // 处理文件上传：直接用 objectURL 交给压缩管线，避免 base64 中转带来双份内存开销
     private handleFileUpload(event: Event): void {
         const target = event.target;
         if (!(target instanceof HTMLInputElement)) {
@@ -561,74 +565,71 @@ export class WallpaperManager {
         const file = target.files?.[0];
         if (!this.validateFile(file)) return;
 
-        const reader = new FileReader();
-
-        reader.onload = async () => {
-            try {
-                if (typeof reader.result !== 'string') {
-                    alert(chrome.i18n.getMessage('fileReadError'));
-                    return;
-                }
-                // 图片二进制以 Blob 存入 IndexedDB，localStorage 只保留引用与元数据
-                const blob = await this.compressImageToBlob(reader.result);
-                const id = `upload-${Date.now()}`;
-                await putWallpaperBlob(id, blob);
-
-                this.userWallpaperRefs.unshift({
-                    storageKey: toStorageKey(id),
-                    title: '自定义壁纸',
-                    timestamp: Date.now()
-                });
-
-                // 超出上限的旧引用只从列表移除，Blob 延迟到新壁纸提交成功后再删除
-                const evictedKeys: string[] = [];
-                const MAX_WALLPAPERS = 1;
-                if (this.userWallpaperRefs.length > MAX_WALLPAPERS) {
-                    for (const ref of this.userWallpaperRefs.splice(MAX_WALLPAPERS)) {
-                        evictedKeys.push(ref.storageKey);
-                    }
-                }
-
-                // 保存轻量元数据
-                try {
-                    localStorage.setItem('userWallpapers', JSON.stringify(this.userWallpaperRefs));
-                } catch {
-                    console.warn('Storage quota exceeded, removing oldest wallpapers');
-                    // 如果存储失败，继续收缩列表直到能够存储为止
-                    while (this.userWallpaperRefs.length > 1) {
-                        const removed = this.userWallpaperRefs.pop();
-                        if (removed) {
-                            evictedKeys.push(removed.storageKey);
-                        }
-                        try {
-                            localStorage.setItem('userWallpapers', JSON.stringify(this.userWallpaperRefs));
-                            break;
-                        } catch {
-                            continue;
-                        }
-                    }
-                }
-
-                await this.loadPresetWallpapers();
-                await this.setWallpaper(toStorageKey(id));
-
-                // 新壁纸已提交；仍被 originalWallpaper 引用的旧 Blob 需保留，避免应用失败后旧壁纸无法回退
-                const activeReference = localStorage.getItem('originalWallpaper');
-                for (const key of evictedKeys) {
-                    if (key !== activeReference) {
-                        await this.removeUserWallpaper(key);
-                    }
-                }
-
-            } catch (error) {
-                console.error('处理壁纸时出错:', error instanceof Error ? error : String(error));
-                alert('设置壁纸失败，请重试');
-            }
-        };
-        reader.onerror = () => alert(chrome.i18n.getMessage('fileReadError'));
-        reader.readAsDataURL(file);
+        const objectUrl = URL.createObjectURL(file);
+        // 成功与失败（含图片解码 onerror）路径都释放 objectURL
+        void this.processUploadedWallpaper(objectUrl)
+            .finally(() => URL.revokeObjectURL(objectUrl));
 
         target.value = '';
+    }
+
+    private async processUploadedWallpaper(objectUrl: string): Promise<void> {
+        try {
+            // 图片二进制以 Blob 存入 IndexedDB，localStorage 只保留引用与元数据
+            const blob = await this.compressImageToBlob(objectUrl);
+            const id = `upload-${Date.now()}`;
+            await putWallpaperBlob(id, blob);
+
+            this.userWallpaperRefs.unshift({
+                storageKey: toStorageKey(id),
+                title: '自定义壁纸',
+                timestamp: Date.now()
+            });
+
+            // 超出上限的旧引用只从列表移除，Blob 延迟到新壁纸提交成功后再删除
+            const evictedKeys: string[] = [];
+            const MAX_WALLPAPERS = 1;
+            if (this.userWallpaperRefs.length > MAX_WALLPAPERS) {
+                for (const ref of this.userWallpaperRefs.splice(MAX_WALLPAPERS)) {
+                    evictedKeys.push(ref.storageKey);
+                }
+            }
+
+            // 保存轻量元数据
+            try {
+                localStorage.setItem('userWallpapers', JSON.stringify(this.userWallpaperRefs));
+            } catch {
+                console.warn('Storage quota exceeded, removing oldest wallpapers');
+                // 如果存储失败，继续收缩列表直到能够存储为止
+                while (this.userWallpaperRefs.length > 1) {
+                    const removed = this.userWallpaperRefs.pop();
+                    if (removed) {
+                        evictedKeys.push(removed.storageKey);
+                    }
+                    try {
+                        localStorage.setItem('userWallpapers', JSON.stringify(this.userWallpaperRefs));
+                        break;
+                    } catch {
+                        continue;
+                    }
+                }
+            }
+
+            await this.loadPresetWallpapers();
+            await this.setWallpaper(toStorageKey(id));
+
+            // 新壁纸已提交；仍被 originalWallpaper 引用的旧 Blob 需保留，避免应用失败后旧壁纸无法回退
+            const activeReference = localStorage.getItem('originalWallpaper');
+            for (const key of evictedKeys) {
+                if (key !== activeReference) {
+                    await this.removeUserWallpaper(key);
+                }
+            }
+
+        } catch (error) {
+            console.error('处理壁纸时出错:', error instanceof Error ? error : String(error));
+            alert('设置壁纸失败，请重试');
+        }
     }
 
     // 验证上传的文件
@@ -643,97 +644,6 @@ export class WallpaperManager {
             return false;
         }
         return true;
-    }
-
-    // 获取最大屏幕分辨率
-    private getMaxScreenResolution(): ScreenResolution {
-        const pixelRatio = window.devicePixelRatio || 1;
-        let maxWidth = window.screen.width;
-        let maxHeight = window.screen.height;
-
-        // 设置基准分辨率为1920x1080
-        const baseWidth = 1920;
-        const baseHeight = 1080;
-
-        // 如果是高分屏，适当提高分辨率，但不超过2K
-        if (pixelRatio > 1) {
-            maxWidth = Math.min(maxWidth * pixelRatio, 2560);
-            maxHeight = Math.min(maxHeight * pixelRatio, 1440);
-        }
-
-        // 返回较小的值：实际分辨率或基准分辨率
-        return {
-            width: Math.min(maxWidth, baseWidth),
-            height: Math.min(maxHeight, baseHeight)
-        };
-    }
-
-    // 计算最大文件大小
-    calculateMaxFileSize(): number {
-        const maxResolution = this.getMaxScreenResolution();
-        const pixelCount = maxResolution.width * maxResolution.height;
-        const baseSize = pixelCount * 4; // 4 bytes per pixel (RGBA)
-
-        // 简化压缩比率
-        let compressionRatio = 0.7; // 默认70%质量
-        if (pixelCount > 1920 * 1080) {
-            compressionRatio = 0.5; // 更高分辨率使用50%质量
-        }
-
-        // 限制最终文件大小在2MB到5MB之间
-        const maxSize = Math.round(baseSize * compressionRatio);
-        return Math.min(Math.max(maxSize, 2 * 1024 * 1024), 5 * 1024 * 1024);
-    }
-
-    // 压缩并设置壁纸
-    private compressAndSetWallpaper(img: HTMLImageElement, maxResolution: ScreenResolution): void {
-        // 先生成并显示低质量预览
-        const previewCanvas = document.createElement('canvas');
-        const previewCtx = previewCanvas.getContext('2d');
-        const previewWidth = Math.round(img.width * 0.1);
-        const previewHeight = Math.round(img.height * 0.1);
-
-        previewCanvas.width = previewWidth;
-        previewCanvas.height = previewHeight;
-        if (!previewCtx) {
-            return;
-        }
-        previewCtx.drawImage(img, 0, 0, previewWidth, previewHeight);
-
-        // 显示模糊预览
-        const previewUrl = previewCanvas.toDataURL('image/jpeg', 0.5);
-        this.setWallpaper(previewUrl);
-
-        // 然后异步处理高质量版本
-        requestAnimationFrame(() => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-
-            // 保持图片比例
-            const ratio = Math.min(
-                maxResolution.width / img.width,
-                maxResolution.height / img.height
-            );
-
-            const width = Math.round(img.width * ratio);
-            const height = Math.round(img.height * ratio);
-
-            canvas.width = width;
-            canvas.height = height;
-
-            // 使用更好的图像平滑算法
-            if (!ctx) {
-                return;
-            }
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-
-            ctx.drawImage(img, 0, 0, width, height);
-
-            // 使用较高的压缩质量
-            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-            this.setWallpaper(compressedDataUrl);
-        });
     }
 
     // 处理图片加载错误
@@ -781,74 +691,17 @@ export class WallpaperManager {
         return option;
     }
 
-    // 新增：生成缩略图方法
-    generateThumbnail(imageUrl: string): Promise<string> {
-        return new Promise<string>((resolve, reject) => {
-            const img = new Image();
-
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-
-                // 计算合适的缩略图尺寸
-                const maxSize = 150; // 更小的缩略图尺寸
-                const ratio = Math.min(maxSize / img.width, maxSize / img.height);
-                const width = Math.round(img.width * ratio);
-                const height = Math.round(img.height * ratio);
-
-                canvas.width = width;
-                canvas.height = height;
-                if (!ctx) {
-                    reject(new DOMException('Canvas 2D context unavailable', 'InvalidStateError'));
-                    return;
-                }
-                ctx.imageSmoothingEnabled = true;
-                ctx.imageSmoothingQuality = 'high';
-                ctx.drawImage(img, 0, 0, width, height);
-
-                // 使用webp格式（如果浏览器支持）
-                if (this.supportsWebP()) {
-                    resolve(canvas.toDataURL('image/webp', 0.8));
-                } else {
-                    resolve(canvas.toDataURL('image/jpeg', 0.8));
-                }
-            };
-
-            img.onerror = () => reject(new DOMException('Wallpaper image failed to load', 'EncodingError'));
-            img.src = imageUrl;
-        });
-    }
-
-    // 检查WebP支持
-    private supportsWebP(): boolean {
-        const canvas = document.createElement('canvas');
-        return canvas.toDataURL('image/webp').indexOf('data:image/webp') === 0;
-    }
-
-    // 添加加载在线壁纸的方法
-    loadOnlineWallpapers(): void {
-        const container = document.querySelector('.wallpaper-options-container');
-        if (!container) return;
-
-        this.onlineWallpapers.forEach(wallpaper => {
-            const option = document.createElement('div');
-            option.className = 'wallpaper-option';
-            option.setAttribute('data-wallpaper-url', wallpaper.url);
-
-            // 创建缩略图
-            const img = document.createElement('img');
-            img.src = wallpaper.thumbnail;
-            img.alt = 'Online Wallpaper';
-            img.className = 'wallpaper-thumbnail';
-
-            option.appendChild(img);
-            container.appendChild(option);
-
-            // 添加点击事件
-            option.addEventListener('click', () => {
-                this.setWallpaper(wallpaper.url);
-            });
-        });
+    // 网格构建完成后应用选中态高亮：数据级对比 localStorage 选中值与预设列表、用户壁纸引用
+    private highlightSelectedWallpaperOption(): void {
+        const key = this.selectedWallpaperKey;
+        if (!key) return;
+        const isKnownWallpaper = this.presetWallpapers.some((preset) => preset.url === key)
+            || this.userWallpaperRefs.some((ref) => ref.storageKey === key);
+        if (!isKnownWallpaper) return;
+        const option = document.querySelector(`.wallpaper-option[data-wallpaper-url="${CSS.escape(key)}"]`);
+        if (option) {
+            option.classList.add('active');
+        }
     }
 
     // 加载用户壁纸元数据；旧版内嵌 dataURL 的条目迁移为 IndexedDB Blob
@@ -943,74 +796,10 @@ export class WallpaperManager {
         }
     }
 
-    // 修改 getLocalizedMessage 方法以支持参数
-    private getLocalizedMessage(key: string, fallback: string, substitutions: readonly string[] = []): string {
-        try {
-            const message = chrome.i18n.getMessage(key, [...substitutions]);
-            return message || fallback;
-        } catch (error) {
-            console.warn(
-                `Failed to get localized message for key: ${key}`,
-                error instanceof Error ? error : String(error)
-            );
-            if (substitutions.length > 0) {
-                // 如果有替换参数，手动替换fallback中的占位符
-                return fallback.replace(/\$1/g, substitutions[0] ?? '')
-                             .replace(/\$2/g, substitutions[1] ?? '');
-            }
-            return fallback;
-        }
-    }
-
-    // 修改显示分辨率警告的代码
-    handleFileRead(event: ProgressEvent<FileReader>, file: File, maxSize: number): void {
-        const result = event.target?.result;
-        if (typeof result !== 'string') {
-            alert(this.getLocalizedMessage('fileReadError', '文件读取失败，请重试'));
-            return;
-        }
-        const img = new Image();
-        img.onload = () => {
-            const maxResolution = this.getMaxScreenResolution();
-
-            if (img.width < maxResolution.width || img.height < maxResolution.height) {
-                // 传递分辨率参数
-                const warning = this.getLocalizedMessage(
-                    'lowResolutionWarning',
-                    `图片分辨率过低，建议使用至少 ${maxResolution.width}x${maxResolution.height} 的图片以获得最佳效果`,
-                    [maxResolution.width.toString(), maxResolution.height.toString()]
-                );
-                alert(warning);
-            }
-
-            try {
-                if (file.size <= maxSize) {
-                    this.setWallpaper(result);
-                } else {
-                    this.compressAndSetWallpaper(img, maxResolution);
-                }
-            } catch (error) {
-                console.error('处理壁纸时出错:', error instanceof Error ? error : String(error));
-                alert(this.getLocalizedMessage('wallpaperSetError', '设置壁纸失败，请重试'));
-            } finally {
-                URL.revokeObjectURL(img.src);
-            }
-        };
-        img.onerror = () => {
-            alert(this.getLocalizedMessage('imageLoadError', '图片加载失败，请尝试其他图片'));
-            URL.revokeObjectURL(img.src);
-        };
-        img.src = result;
-    }
-
-    // 初始化必应壁纸
+    // 初始化必应壁纸；设置面板首次打开时才调用
     private async initBingWallpapers(): Promise<void> {
         try {
-            // 获取8天的必应壁纸
-            const wallpapers = await this.fetchBingWallpapers(4);
-            this.bingWallpapers = wallpapers;
-
-            // 渲染壁纸
+            this.bingWallpapers = await this.loadBingWallpapers();
             this.renderBingWallpapers();
         } catch (error) {
             console.error(
@@ -1020,13 +809,80 @@ export class WallpaperManager {
         }
     }
 
-    // 获取必应壁纸
-    private async fetchBingWallpapers(count = 4): Promise<readonly BingWallpaper[]> {
+    // 优先读取按日缓存的元数据（当天命中不再请求）；失败退避期内跳过请求
+    private async loadBingWallpapers(): Promise<readonly BingWallpaper[]> {
+        const cached = this.readCachedBingWallpapers();
+        if (cached) {
+            return cached;
+        }
+        if (this.isBingFetchInBackoff()) {
+            return [];
+        }
         try {
-            // 使用中国的必应 API，添加 UHD 参数获取高清壁纸
+            // 获取最近 4 张必应壁纸
+            const wallpapers = await this.fetchBingWallpapers(4);
+            if (wallpapers.length > 0) {
+                this.writeCachedBingWallpapers(wallpapers);
+            }
+            return wallpapers;
+        } catch (error) {
+            // 记录失败时间戳，30 分钟内不再重试
+            localStorage.setItem(BING_FETCH_FAILURE_KEY, String(Date.now()));
+            throw error;
+        }
+    }
+
+    private readCachedBingWallpapers(): BingWallpaper[] | null {
+        try {
+            const raw = localStorage.getItem(BING_WALLPAPERS_CACHE_KEY);
+            if (!raw) return null;
+            const parsed: unknown = JSON.parse(raw);
+            if (typeof parsed !== 'object' || parsed === null) return null;
+            if (!('date' in parsed) || typeof parsed.date !== 'string') return null;
+            if (parsed.date !== localDateStamp()) return null;
+            if (!('wallpapers' in parsed) || !Array.isArray(parsed.wallpapers)) return null;
+            const wallpapers: BingWallpaper[] = [];
+            for (const entry of parsed.wallpapers) {
+                const wallpaper = normalizeCachedBingWallpaper(entry);
+                if (wallpaper) {
+                    wallpapers.push(wallpaper);
+                }
+            }
+            return wallpapers;
+        } catch {
+            return null;
+        }
+    }
+
+    private writeCachedBingWallpapers(wallpapers: readonly BingWallpaper[]): void {
+        try {
+            localStorage.setItem(BING_WALLPAPERS_CACHE_KEY, JSON.stringify({
+                date: localDateStamp(),
+                wallpapers
+            }));
+        } catch (error) {
+            console.warn('缓存必应壁纸元数据失败:', error instanceof Error ? error : String(error));
+        }
+    }
+
+    private isBingFetchInBackoff(): boolean {
+        const failedAt = Number(localStorage.getItem(BING_FETCH_FAILURE_KEY));
+        return Number.isFinite(failedAt) && Date.now() - failedAt < BING_FETCH_RETRY_INTERVAL_MS;
+    }
+
+    // 获取必应壁纸；网络失败、超时或响应结构异常时抛错，由调用方执行退避
+    private async fetchBingWallpapers(count = 4): Promise<readonly BingWallpaper[]> {
+        // 使用中国的必应 API，添加 UHD 参数获取高清壁纸；8 秒超时避免请求悬挂
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), BING_FETCH_TIMEOUT_MS);
+        try {
             const response = await fetch(
-                `https://cn.bing.com/HPImageArchive.aspx?format=js&idx=0&n=${count}&mkt=zh-CN&uhd=1&uhdwidth=3840&uhdheight=2160`
+                `https://cn.bing.com/HPImageArchive.aspx?format=js&idx=0&n=${count}&mkt=zh-CN&uhd=1&uhdwidth=3840&uhdheight=2160`,
+                { signal: controller.signal }
             );
+            if (!response.ok) {
+                throw new Error(`Bing wallpapers request failed: ${response.status}`);
+            }
             const data: unknown = await response.json();
 
             if (
@@ -1035,8 +891,7 @@ export class WallpaperManager {
                 !('images' in data) ||
                 !Array.isArray(data.images)
             ) {
-                console.error('No images data in response');
-                return [];
+                throw new Error('No images data in response');
             }
 
             return data.images.flatMap((image): BingWallpaper[] => {
@@ -1056,16 +911,22 @@ export class WallpaperManager {
                 const title = 'title' in image && typeof image.title === 'string' && image.title
                     ? image.title
                     : copyright.split('(')[0]?.trim() || 'Bing Wallpaper';
+                const url = `https://cn.bing.com${image.url}`;
+                // 网格缩略图用低分辨率版本，点击设为壁纸时才使用 UHD 原图
+                const urlbase = 'urlbase' in image && typeof image.urlbase === 'string'
+                    ? image.urlbase
+                    : null;
+                const thumbnail = urlbase ? `https://cn.bing.com${urlbase}_800x480.jpg` : url;
                 return [{
-                    url: `https://cn.bing.com${image.url}`,
+                    url,
+                    thumbnail,
                     title,
                     copyright,
                     date: image.startdate
                 }];
             });
-        } catch (error) {
-            console.error('Failed to fetch Bing wallpapers:', error instanceof Error ? error : String(error));
-            return [];
+        } finally {
+            window.clearTimeout(timeoutId);
         }
     }
 
@@ -1084,14 +945,15 @@ export class WallpaperManager {
 
     // 创建必应壁纸元素
     private createBingWallpaperElement(wallpaper: BingWallpaper): HTMLDivElement {
-        const { url, title, date } = wallpaper;
+        const { url, thumbnail, title, date } = wallpaper;
         const element = document.createElement('div');
         element.className = 'bing-wallpaper-item';
+        // 点击设为壁纸时使用 UHD 原图
         element.setAttribute('data-wallpaper-url', url);
         element.title = title;
-        const thumbnail = document.createElement('div');
-        thumbnail.className = 'bing-wallpaper-thumbnail';
-        thumbnail.style.backgroundImage = `url("${url}")`;
+        const thumbnailElement = document.createElement('div');
+        thumbnailElement.className = 'bing-wallpaper-thumbnail';
+        thumbnailElement.style.backgroundImage = `url("${thumbnail}")`;
         const info = document.createElement('div');
         info.className = 'bing-wallpaper-info';
         const titleElement = document.createElement('div');
@@ -1101,7 +963,7 @@ export class WallpaperManager {
         dateElement.className = 'bing-wallpaper-date';
         dateElement.textContent = this.formatDate(date);
         info.append(titleElement, dateElement);
-        element.append(thumbnail, info);
+        element.append(thumbnailElement, info);
 
         // 修改点击事件，使用 handleWallpaperOptionClick
         element.addEventListener('click', () => {

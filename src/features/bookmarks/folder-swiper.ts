@@ -50,12 +50,20 @@ function updateScrollFades(list: HTMLElement): void {
 const listObservers = new WeakMap<HTMLElement, { resize: ResizeObserver; mutate: MutationObserver }>()
 
 function bindInnerScroll(list: HTMLElement): void {
-  const syncFades = () => updateScrollFades(list)
+  // wheel/scroll 高频路径只读 scrollTop，scrollHeight/clientHeight 经 observer 失效后重测
+  let layout = { scrollHeight: list.scrollHeight, clientHeight: list.clientHeight }
+  const measure = (): void => {
+    layout = { scrollHeight: list.scrollHeight, clientHeight: list.clientHeight }
+  }
+  const syncFades = (): void => {
+    measure()
+    updateScrollFades(list)
+  }
 
   list.addEventListener('wheel', (event) => {
-    if (list.scrollHeight <= list.clientHeight + 1) return
+    if (layout.scrollHeight <= layout.clientHeight + 1) return
     const atTop = list.scrollTop <= 0
-    const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 1
+    const atBottom = list.scrollTop + layout.clientHeight >= layout.scrollHeight - 1
     if ((event.deltaY < 0 && !atTop) || (event.deltaY > 0 && !atBottom)) {
       event.stopPropagation()
     }

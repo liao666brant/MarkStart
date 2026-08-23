@@ -131,3 +131,32 @@ test('skips syncing without an active folder and reports sync errors', () => {
   listeners[0]?.()
   assert.deepEqual(errors, [new Error('sync failed')])
 })
+
+test('coalesces event storms into a leading and a trailing sync', async () => {
+  const synced: string[] = []
+  const listeners: Array<() => void> = []
+  const source = {
+    addListener: (callback: () => void) => {
+      listeners.push(callback)
+    },
+  }
+
+  startBookmarkChangeSync(
+    [source],
+    () => 'bookmarks-bar',
+    (parentId) => {
+      synced.push(parentId)
+    },
+    () => undefined,
+    { quietPeriodMs: 40 },
+  )
+
+  assert.equal(listeners.length, 1)
+  listeners[0]?.()
+  listeners[0]?.()
+  listeners[0]?.()
+  assert.deepEqual(synced, ['bookmarks-bar'])
+
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.deepEqual(synced, ['bookmarks-bar', 'bookmarks-bar'])
+})

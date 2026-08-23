@@ -1,3 +1,4 @@
+import { evictCachedCardColors, setCachedCardColors } from './card-colors'
 import type { BookmarkColors } from './page-parsers'
 
 type ColorHandlers = {
@@ -19,25 +20,33 @@ export function updateBookmarkCard(
   const bookmarkCard = document.querySelector<HTMLElement>(`.bookmark-card[data-id="${CSS.escape(bookmarkId)}"]`)
   if (!bookmarkCard) return
 
-  if (bookmarkCard instanceof HTMLAnchorElement) {
-    bookmarkCard.href = newUrl
+  const anchor = bookmarkCard instanceof HTMLAnchorElement ? bookmarkCard : null
+  const previousUrl = anchor?.href
+
+  if (anchor) {
+    anchor.href = newUrl
+    // 委托监听器从 dataset 取 URL，编辑后同步刷新
+    anchor.dataset['url'] = newUrl
   }
 
   const title = bookmarkCard.querySelector<HTMLElement>('.card-title')
   if (title) title.textContent = newTitle
 
+  // URL 未变化时只更新标题，跳过 favicon 重取与取色
+  if (previousUrl !== undefined && anchor !== null && previousUrl === anchor.href) return
+
   const image = bookmarkCard.querySelector<HTMLImageElement>('img')
   if (!image) return
 
-  localStorage.removeItem(`bookmark-colors-${bookmarkId}`)
-  image.src = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(newUrl)}&size=32&t=${Date.now()}`
+  evictCachedCardColors(bookmarkId)
+  image.src = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(newUrl)}&size=32&cache=1`
   image.onload = () => {
     const colors = handlers.getColors(image)
     handlers.applyColors(bookmarkCard, colors)
-    localStorage.setItem(`bookmark-colors-${bookmarkId}`, JSON.stringify(colors))
+    setCachedCardColors(bookmarkId, colors)
   }
   image.onerror = () => {
     handlers.applyColors(bookmarkCard, fallbackColors)
-    localStorage.setItem(`bookmark-colors-${bookmarkId}`, JSON.stringify(fallbackColors))
+    setCachedCardColors(bookmarkId, fallbackColors)
   }
 }

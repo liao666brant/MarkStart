@@ -8,6 +8,11 @@ type ColorCache = {
 
 let userName = localStorage.getItem('userName') || 'Sowhale'
 
+// 欢迎语显隐的内存缓存：initialize 读一次，storage 变化时同步，读取路径不再访问 storage
+let showWelcomeMessageEnabled = true
+// 最近一次由 manager 写入的欢迎语文本，用于识别外部改写
+let lastAppliedMessage: string | null = null
+
 function getRgbChannels(color: string): readonly [number, number, number] | null {
   const matches = color.match(/\d+/g)
   const red = matches?.at(0)
@@ -28,13 +33,25 @@ export const WelcomeManager = {
 
   initialize(): void {
     chrome.storage.sync.get(['showWelcomeMessage'], (result) => {
+      showWelcomeMessageEnabled = result['showWelcomeMessage'] !== false
       const welcomeElement = document.getElementById('welcome-message')
       if (welcomeElement) {
-        welcomeElement.style.display = result['showWelcomeMessage'] !== false ? '' : 'none'
-        if (result['showWelcomeMessage'] !== false) {
+        welcomeElement.style.display = showWelcomeMessageEnabled ? '' : 'none'
+        if (showWelcomeMessageEnabled) {
           this.updateWelcomeMessage(false)
         }
       }
+
+      chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName !== 'sync') {
+          return
+        }
+        const change = changes['showWelcomeMessage']
+        if (change === undefined) {
+          return
+        }
+        showWelcomeMessageEnabled = change.newValue !== false
+      })
 
       this.initializeColorCache()
       this.setupEventListeners()
@@ -58,11 +75,11 @@ export const WelcomeManager = {
       return
     }
 
-    welcomeElement.textContent = `${greeting}, ${userName}`
+    const message = `${greeting}, ${userName}`
+    welcomeElement.textContent = message
+    lastAppliedMessage = message
     if (checkVisibility) {
-      chrome.storage.sync.get(['showWelcomeMessage'], (result) => {
-        welcomeElement.style.display = result['showWelcomeMessage'] !== false ? '' : 'none'
-      })
+      welcomeElement.style.display = showWelcomeMessageEnabled ? '' : 'none'
     }
     this.adjustTextColor(welcomeElement)
   },
@@ -115,11 +132,22 @@ export const WelcomeManager = {
       return
     }
 
+    // 命中缓存：直接复用上次采样结果，跳过整图解码与 canvas 采样
     if (this.colorCache.lastBackground === backgroundImage && this.colorCache.lastTextColor) {
       element.style.color = this.colorCache.lastTextColor
-    } else {
-      element.style.color = 'rgba(255, 255, 255, 0.9)'
+      return
     }
+
+    // 非 url 背景（纯色/渐变）无法采样：沿用与图片加载失败一致的降级色逻辑
+    if (!backgroundImage.startsWith('url')) {
+      if (!this.colorCache.lastTextColor) {
+        element.style.color = 'rgba(255, 255, 255, 0.9)'
+      }
+      return
+    }
+
+    // 采样完成前先给白色兜底，采样结束后会被覆盖
+    element.style.color = 'rgba(255, 255, 255, 0.9)'
 
     const image = new Image()
     image.crossOrigin = 'Anonymous'
@@ -188,11 +216,6 @@ export const WelcomeManager = {
         green = Math.floor(green / count)
         blue = Math.floor(blue / count)
         const brightness = red * 0.299 + green * 0.587 + blue * 0.114
-        console.log('[WelcomeManager] Sampled area color:', {
-          area: sampleArea,
-          color: { red, green, blue },
-          brightness,
-        })
 
         const textColor =
           brightness > 128 ? 'rgba(51, 51, 51, 0.9)' : 'rgba(255, 255, 255, 0.9)'
@@ -236,13 +259,8 @@ export const WelcomeManager = {
             return
           }
           const currentText = welcomeElement.textContent
-          if (
-            currentText &&
-            !currentText.includes(userName) &&
-            (currentText.includes('早上好') ||
-              currentText.includes('下午好') ||
-              currentText.includes('晚上好'))
-          ) {
+          // 文本与最近一次由 manager 应用的一致时忽略；不一致说明被外部改写，重写回正确欢迎语
+          if (currentText && currentText !== lastAppliedMessage) {
             this.updateWelcomeMessage()
           }
         })
@@ -275,14 +293,30 @@ window.WelcomeManager = WelcomeManager
 document.addEventListener('DOMContentLoaded', () => {
   WelcomeManager.initialize()
 
-  // 欢迎语仅依赖时间段：对齐下一个分钟边界单次触发并重排，页面隐藏时跳过刷新
+  // 欢迎语仅依赖时间段：对齐下一个分钟边界单次触发并重排，页面隐藏时暂停刷新
+  let minuteTimeoutId: number | undefined
+  const refreshWelcomeMessage = (): void => {
+    if (!document.hidden) {
+      WelcomeManager.updateWelcomeMessage()
+    }
+  }
   const scheduleMinuteRefresh = (): void => {
-    window.setTimeout(() => {
-      if (!document.hidden) {
-        WelcomeManager.updateWelcomeMessage()
-      }
+    if (minuteTimeoutId !== undefined) {
+      clearTimeout(minuteTimeoutId)
+    }
+    minuteTimeoutId = window.setTimeout(() => {
+      refreshWelcomeMessage()
       scheduleMinuteRefresh()
     }, 60_000 - (Date.now() % 60_000))
   }
+
+  // 页面重新可见时立即刷新并重新对齐分钟边界，避免长时间隐藏后欢迎语停留在旧时间段
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      return
+    }
+    refreshWelcomeMessage()
+    scheduleMinuteRefresh()
+  })
   scheduleMinuteRefresh()
 })

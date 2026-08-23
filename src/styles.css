@@ -13,7 +13,6 @@ body,
 main {
   opacity: 1;
   transition: opacity 0.3s ease-out;
-  will-change: background-image;
   background-color: transparent !important;
 }
 
@@ -229,6 +228,14 @@ main.flex-1 > footer {
 }
 [data-theme="dark"] .card-title:hover {
   color: #242424;
+}
+
+/* 悬停效果由 CSS 提供（替代原先逐卡绑定的 mouseenter/mouseleave）；
+   background-color 需 !important 才能盖过 applyColors 写入的 inline background 渐变 */
+.bookmark-card.card:hover {
+  transform: scale(1.03);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.01);
+  background-color: rgba(255, 255, 255, 1) !important;
 }
 
 
@@ -506,11 +513,6 @@ body, main {
 main {
     min-height: 100vh;
     position: relative;
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-attachment: fixed;
-    will-change: background-image;
 }
 
 .page-loading {

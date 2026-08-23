@@ -17,6 +17,7 @@
 - 读取 Chrome `history` 与 `storage.sync`；缓存键为 `localStorage.quickLinksCache`。
 - `fixedShortcuts` 是完整 `QuickLink[]`，`blacklist` 为域名字符串数组；外部存储值先经 `storage.ts` 窄化。
 - `menu.ts`、`dialogs.ts`、`qr-modal.ts` 直接依赖页面 DOM 和 Chrome i18n，不应在 Node 环境直接导入。
+- 性能契约：`DOMContentLoaded` 中 `quickLinksCache.load()` 必须先于 `generateQuickLinks()`（否则 5 分钟缓存永久失效，每次开页全量查 1000 条历史）；黑名单种子域名以 localStorage 标志键 `blacklistSeededV1` 只写入一次；qrcode 为动态 `import()` 按需加载。
 
 ## 测试与质量
 
@@ -36,4 +37,5 @@
 
 ## 变更记录
 
+- 2026-08-23：性能整改——修复缓存加载顺序（P0）、黑名单种子一次性写入、qrcode 懒加载、占位符 `Math.max` 修复。
 - 2026-08-20：由单文件控制器拆分为数据、视图、菜单和对话框职责。

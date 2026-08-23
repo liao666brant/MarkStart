@@ -61,6 +61,32 @@ function getOpenMultipleTabsResponse(value: unknown): OpenMultipleTabsResponse |
     : { success: value['success'] };
 }
 
+// 搜索建议设置（showHistorySuggestions / showBookmarkSuggestions）模块级缓存：
+// 首次用到时读一次，storage 变更时通过 onChanged 失效，避免每次输入都读 chrome.storage
+let suggestionSettingsCache: Record<string, unknown> | undefined;
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'sync') return;
+  if (changes['showHistorySuggestions'] !== undefined || changes['showBookmarkSuggestions'] !== undefined) {
+    suggestionSettingsCache = undefined;
+  }
+});
+
+function getSuggestionSettings(): Promise<Record<string, unknown>> {
+  if (suggestionSettingsCache !== undefined) {
+    return Promise.resolve(suggestionSettingsCache);
+  }
+  return new Promise<Record<string, unknown>>(resolve => {
+    chrome.storage.sync.get(
+      ['showHistorySuggestions', 'showBookmarkSuggestions'],
+      (rawResult: unknown) => {
+        suggestionSettingsCache = isUnknownRecord(rawResult) ? rawResult : {};
+        resolve(suggestionSettingsCache);
+      }
+    );
+  });
+}
+
 export function initializeSearchInteractions(): void {
   const tabsContainer = requireElement(document.getElementById('tabs-container'), HTMLElement, '#tabs-container');
   const tabs = document.querySelectorAll<HTMLElement>('.tab');
@@ -121,12 +147,18 @@ export function initializeSearchInteractions(): void {
 
   const searchForm = requireElement(document.getElementById('search-form'), HTMLElement, '#search-form');
   const searchInput = requireElement(document.querySelector('.search-input'), HTMLTextAreaElement, '.search-input');
+
+  // 建议查询递增 id：异步查询返回时若已过期则丢弃，防止慢查询晚返回覆盖新结果
+  let suggestionQueryId = 0;
+
   searchInput.addEventListener('focus', async function () {
+    const requestId = ++suggestionQueryId;
     searchForm.classList.add('focused');
     if (searchInput.value.trim() === '') {
-      showDefaultSuggestions();
+      await showDefaultSuggestions(requestId);
     } else {
       const suggestions = await getSuggestions(searchInput.value.trim());
+      if (requestId !== suggestionQueryId) return;
       showSuggestions(suggestions);
     }
   });
@@ -293,25 +325,6 @@ export function initializeSearchInteractions(): void {
 
 
 
-  new Sortable(tabsContainer, {
-    animation: 150,
-    onEnd: function (_evt) {
-      const orderedEngines = Array.from(tabsContainer.children).map(tab => tab.getAttribute('data-engine'));
-      localStorage.setItem('orderedSearchEngines', JSON.stringify(orderedEngines));
-    }
-  });
-
-
-  searchInput.addEventListener('focus', function () {
-    searchForm.classList.add('focused');
-  });
-
-  searchInput.addEventListener('blur', function () {
-    searchForm.classList.remove('focused');
-  });
-
-
-
   function updateSubmitButtonState() {
     if (searchInput.value.trim() === '') {
       tabsContainer.style.display = 'none';
@@ -353,7 +366,24 @@ export function initializeSearchInteractions(): void {
 
   // 添加这个函数定义
 
+  // 最近历史 60 秒内存缓存：focus 与清空输入场景高频复用；简单 TTL，不做主动失效
+  const RECENT_HISTORY_TTL_MS = 60 * 1000;
+  let recentHistoryCache: {
+    limit: number;
+    maxPerDomain: number;
+    expiresAt: number;
+    data: RecentHistorySuggestion[];
+  } | null = null;
+
   async function getRecentHistory(limit = 100, maxPerDomain = 5): Promise<RecentHistorySuggestion[]> {
+    if (
+      recentHistoryCache &&
+      recentHistoryCache.limit === limit &&
+      recentHistoryCache.maxPerDomain === maxPerDomain &&
+      Date.now() < recentHistoryCache.expiresAt
+    ) {
+      return recentHistoryCache.data;
+    }
     return new Promise(resolve => {
       chrome.history.search({ text: '', maxResults: limit * 20 }, (historyItems) => {
         const now = Date.now();
@@ -401,6 +431,7 @@ export function initializeSearchInteractions(): void {
           // 限制结果数量
           .slice(0, limit);
 
+        recentHistoryCache = { limit, maxPerDomain, expiresAt: Date.now() + RECENT_HISTORY_TTL_MS, data: recentHistory };
         resolve(recentHistory);
       });
     });
@@ -417,11 +448,14 @@ export function initializeSearchInteractions(): void {
         },
         (results) => {
 
-          // 对历史记录进行去重
-          const uniqueResults = Array.from(new Set(results.map(r => r.url)))
-            .map(url => results.find(r => r.url === url))
-            .filter((item): item is chrome.history.HistoryItem => item !== undefined);
-          resolve(uniqueResults);
+          // 对历史记录进行去重（Map 预建索引，O(n) 完成，避免 O(n²) 重复查找）
+          const uniqueByUrl = new Map<string | undefined, chrome.history.HistoryItem>();
+          for (const item of results) {
+            if (!uniqueByUrl.has(item.url)) {
+              uniqueByUrl.set(item.url, item);
+            }
+          }
+          resolve(Array.from(uniqueByUrl.values()));
         }
       );
     });
@@ -434,13 +468,8 @@ export function initializeSearchInteractions(): void {
 
     let suggestions: SearchSuggestion[] = [{ text: query, type: 'search', relevance: Infinity }];
 
-    // 获取设置
-    const settings = await new Promise<Record<string, unknown>>(resolve => {
-      chrome.storage.sync.get(
-        ['showHistorySuggestions', 'showBookmarkSuggestions'],
-        (rawResult: unknown) => resolve(isUnknownRecord(rawResult) ? rawResult : {})
-      );
-    });
+    // 获取设置（模块级缓存 + storage 变更失效，避免每次输入都读 chrome.storage）
+    const settings = await getSuggestionSettings();
 
     // 根据设置获取历史记录建议
     let historySuggestions: SearchSuggestion[] = [];
@@ -478,10 +507,14 @@ export function initializeSearchInteractions(): void {
       ...bookmarkSuggestions
     );
 
-    // 对结果进行排序和去重
-    const uniqueSuggestions = Array.from(new Set(suggestions.map(s => s.url)))
-      .map(url => suggestions.find(s => s.url === url))
-      .filter((suggestion): suggestion is SearchSuggestion => suggestion !== undefined)
+    // 对结果进行排序和去重（Map 预建索引保留首个匹配，O(n) 完成，避免 O(n²) 重复查找）
+    const suggestionByUrl = new Map<string | undefined, SearchSuggestion>();
+    for (const suggestion of suggestions) {
+      if (!suggestionByUrl.has(suggestion.url)) {
+        suggestionByUrl.set(suggestion.url, suggestion);
+      }
+    }
+    const uniqueSuggestions = Array.from(suggestionByUrl.values())
       .sort((a, b) => b.relevance - a.relevance);
 
     // 平衡和交替显示结果
@@ -568,6 +601,9 @@ export function initializeSearchInteractions(): void {
     if (query === text) return 1;
 
     const maxLength = Math.max(query.length, text.length);
+    // 快速拒绝：编辑距离下限是长度差，若长度差已使最高可能相似度不超过 0.8 阈值
+    // （调用处要求 fuzzyScore > 0.8 才计入得分），直接返回 0，跳过 Levenshtein DP
+    if (maxLength - Math.abs(query.length - text.length) <= 0.8 * maxLength) return 0;
     const distance = levenshteinDistance(query, text);
     return (maxLength - distance) / maxLength;
   }
@@ -682,10 +718,46 @@ export function initializeSearchInteractions(): void {
   const USER_BEHAVIOR_KEY = 'userSearchBehavior';
 
   // 在文件顶部定义 MAX_BEHAVIOR_ENTRIES
-  const MAX_BEHAVIOR_ENTRIES = 1000; // 你可以根据需要调整这个值
+  const MAX_BEHAVIOR_ENTRIES = 1000; // 你可以根据需要调整该值
+
+  // 行为表内存缓存：建议相关性每次输入都要读，缓存 + onChanged 失效后
+  // 热路径不再走 storage IPC；写路径更新缓存并防抖落盘
+  let userBehaviorCache: SearchBehaviorMap | null = null;
+  let userBehaviorSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  let pendingBehaviorSave: SearchBehaviorMap | null = null;
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes[USER_BEHAVIOR_KEY] !== undefined) {
+      userBehaviorCache = null;
+    }
+  });
+
+  function flushUserBehaviorSave(): void {
+    if (userBehaviorSaveTimer !== undefined) {
+      clearTimeout(userBehaviorSaveTimer);
+      userBehaviorSaveTimer = undefined;
+    }
+    const toWrite = pendingBehaviorSave;
+    pendingBehaviorSave = null;
+    if (toWrite !== null) {
+      chrome.storage.local.set({ [USER_BEHAVIOR_KEY]: toWrite });
+    }
+  }
+
+  function scheduleUserBehaviorSave(behavior: SearchBehaviorMap): void {
+    if (userBehaviorSaveTimer !== undefined) clearTimeout(userBehaviorSaveTimer);
+    pendingBehaviorSave = behavior;
+    userBehaviorSaveTimer = setTimeout(flushUserBehaviorSave, 1000);
+  }
+
+  // 页面关闭/丢弃前同步落盘，避免防抖窗口内的末次增量丢失
+  window.addEventListener('pagehide', flushUserBehaviorSave);
 
   // 获取用户行为数据
   async function getUserBehavior(): Promise<SearchBehaviorMap> {
+    if (userBehaviorCache !== null) {
+      return userBehaviorCache;
+    }
     return new Promise(resolve => {
       chrome.storage.local.get(USER_BEHAVIOR_KEY, (rawResult: unknown) => {
         const rawBehavior = isUnknownRecord(rawResult) ? rawResult[USER_BEHAVIOR_KEY] : undefined;
@@ -699,11 +771,12 @@ export function initializeSearchInteractions(): void {
           }
         }
         resolve(behavior); // 直接返回行为数据，不进行清理
+        userBehaviorCache = behavior;
       });
     });
   }
 
-  // 保存用户行为数据
+  // 保存用户行为数据：写穿缓存，防抖落盘避免逐次点击整表 IPC 往返
   async function saveUserBehavior(key: string, increment = 1) {
     const behavior = await getUserBehavior();
     const now = Date.now();
@@ -724,9 +797,9 @@ export function initializeSearchInteractions(): void {
       });
     }
 
-    return new Promise<void>((resolve) => {
-      chrome.storage.local.set({ [USER_BEHAVIOR_KEY]: behavior }, () => resolve()); // 直接保存行为数据
-    });
+    userBehaviorCache = behavior;
+    scheduleUserBehaviorSave(behavior);
+    return Promise.resolve();
   }
 
   // 计算用户相关性
@@ -928,15 +1001,17 @@ export function initializeSearchInteractions(): void {
 
   // Add this function to fetch favicons
   function getFavicon(url: string, callback: (faviconUrl: string) => void) {
-    const faviconURL = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(url)}&size=32`;
+    const faviconUrl = new URL(chrome.runtime.getURL('/_favicon/'));
+    faviconUrl.searchParams.set('pageUrl', url);
+    faviconUrl.searchParams.set('size', '32');
+    faviconUrl.searchParams.set('cache', '1');
+    const faviconHref = faviconUrl.toString();
     const img = new Image();
     img.onload = function () {
-      callback(faviconURL);
+      callback(faviconHref);
     };
-    img.onerror = function () {
-      callback(''); // Return an empty string if favicon is not found
-    };
-    img.src = faviconURL;
+    // 加载失败时不回调：保留原有默认图标占位 span，避免渲染 <img src=""> 触发重复请求
+    img.src = faviconHref;
   }
 
   // Add this function to fetch favicon online as a fallback
@@ -945,14 +1020,12 @@ export function initializeSearchInteractions(): void {
   // Add this function to cache favicons
 
 
-  async function showDefaultSuggestions() {
-    // 首先检查设置
-    const settings = await new Promise<Record<string, unknown>>(resolve => {
-      chrome.storage.sync.get(
-        ['showHistorySuggestions', 'showBookmarkSuggestions'],
-        (rawResult: unknown) => resolve(isUnknownRecord(rawResult) ? rawResult : {})
-      );
-    });
+  async function showDefaultSuggestions(requestId?: number) {
+    // 查询期间若有更新的查询发起，则本次结果已过期，不再改动建议列表
+    const isStale = () => requestId !== undefined && requestId !== suggestionQueryId;
+
+    // 首先检查设置（模块级缓存 + storage 变更失效）
+    const settings = await getSuggestionSettings();
 
     let suggestions: SearchSuggestion[] = [];
 
@@ -968,7 +1041,7 @@ export function initializeSearchInteractions(): void {
     } else {
       // 如果历史记录已关闭且没有搜索词，不显示任何建议
       if (!searchInput.value.trim()) {
-        hideSuggestions();
+        if (!isStale()) hideSuggestions();
         return;
       }
     }
@@ -987,6 +1060,9 @@ export function initializeSearchInteractions(): void {
       })));
     }
 
+    // 异步查询期间若有新查询发起，丢弃过期结果
+    if (isStale()) return;
+
     // 如果没有任何建议，则不显示建议列表
     if (suggestions.length === 0) {
       hideSuggestions();
@@ -998,42 +1074,27 @@ export function initializeSearchInteractions(): void {
 
   // 修改 handleInput 函数
   const handleInput = debounce(async () => {
+    const requestId = ++suggestionQueryId;
     const query = searchInput.value.trim();
     showLoadingIndicator();
 
     if (query) {
       const suggestions = await getSuggestions(query);
+      if (requestId !== suggestionQueryId) return;
       hideLoadingIndicator();
       // 移除 length > 1 的判断，因为我们总是想显示搜索建议
       showSuggestions(suggestions);
     } else {
       hideLoadingIndicator();
-      showDefaultSuggestions();
+      await showDefaultSuggestions(requestId);
     }
     updateSubmitButtonState();
   }, 300);
 
-  // 同样修改 focus 事件监听器
-  searchInput.addEventListener('focus', async () => {
-    const searchForm = requireElement(document.querySelector('.search-form'), HTMLElement, '.search-form');
-    searchForm.classList.add('focused');
-
-    if (searchInput.value.trim() === '') {
-      await showDefaultSuggestions();
-    } else {
-      const suggestions = await getSuggestions(searchInput.value.trim());
-      // 移除 length > 1 的判断
-      showSuggestions(suggestions);
-    }
-  });
-
-  // 处理输入事件
+  // 处理输入事件（值为空的清空场景统一交给防抖后的 handleInput，避免同一次清空触发两次历史查询）
   searchInput.addEventListener('input', () => {
     handleInput();
     updateSubmitButtonState();
-    if (searchInput.value.trim() === '') {
-      showDefaultSuggestions();
-    }
   });
 
   // 处理键盘导航

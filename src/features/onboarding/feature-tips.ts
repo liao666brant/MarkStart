@@ -19,6 +19,7 @@ class FeatureTips {
     private pageLoaded: boolean;
     private initStarted: boolean;
     private currentVersion: string;
+    private hideStyleElement: HTMLStyleElement | null;
 
     constructor() {
         this.fadeOutDuration = 300; // 淡出动画时长(毫秒)
@@ -32,6 +33,7 @@ class FeatureTips {
         this.pageLoaded = false; // 标记页面是否已完全加载
         this.initStarted = false; // 标记初始化是否已开始
         this.currentVersion = chrome.runtime.getManifest().version;
+        this.hideStyleElement = null; // 隐藏样式元素缓存，仅创建一次并复用
 
         // 立即隐藏所有提示，防止闪烁
         this.hideAllTipsImmediately();
@@ -66,23 +68,24 @@ class FeatureTips {
 
     // 立即隐藏所有提示
     private hideAllTipsImmediately(): void {
-        // 使用 style 标签立即隐藏提示，避免 CSS 加载延迟导致的闪烁
-        const style = document.createElement('style');
-        style.textContent = `
-            .settings-update-tip {
-                display: none !important;
-                opacity: 0 !important;
-                visibility: hidden !important;
-            }
-        `;
-        document.head.appendChild(style);
-
-        // 移除可能存在的旧样式
-        const oldStyle = document.getElementById('feature-tips-style');
-        if (oldStyle) {
-            oldStyle.remove();
+        // 使用 style 标签立即隐藏提示，避免 CSS 加载延迟导致的闪烁；样式元素仅创建一次并复用
+        if (!this.hideStyleElement) {
+            const style = document.createElement('style');
+            style.textContent = `
+                .settings-update-tip {
+                    display: none !important;
+                    opacity: 0 !important;
+                    visibility: hidden !important;
+                }
+            `;
+            style.id = 'feature-tips-style';
+            this.hideStyleElement = style;
         }
-        style.id = 'feature-tips-style';
+
+        // resetTipStyle 展示提示时会把样式元素移出文档，这里按需重新挂载
+        if (!this.hideStyleElement.isConnected) {
+            document.head.appendChild(this.hideStyleElement);
+        }
     }
 
     // 重置提示样式
@@ -213,8 +216,10 @@ class FeatureTips {
 
     // 处理队列中的下一个提示
     private processNextTip(): void {
-        // 如果正在处理中或已经检查过所有提示，直接返回
-        if (this.isProcessing || (this.hasCheckedSettingsTip)) {
+        // 正在处理中，或队列已空且设置提示已检查过时直接返回。
+        // 注意：设置提示检查完成后若队列仍有待显示提示，必须放行继续处理，
+        // 否则 closeTips 的续驱调用会被 hasCheckedSettingsTip 短路，队列永久滞留。
+        if (this.isProcessing || (this.tipQueue.length === 0 && this.hasCheckedSettingsTip)) {
             return;
         }
 
@@ -238,11 +243,12 @@ class FeatureTips {
         }
         const { featureKey, storageKey } = nextTip;
         this.isShowingTip = true;
-        
-        requestAnimationFrame(() => {
+
+        // 页面不可见时 requestAnimationFrame 永不触发，会让状态机卡死，改用 setTimeout(0)
+        setTimeout(() => {
             this.showTips(featureKey);
             localStorage.setItem(storageKey, 'true');
-        });
+        }, 0);
     }
 
     // 检查是否需要显示设置提示
@@ -276,29 +282,48 @@ class FeatureTips {
         const tipsElement = document.createElement('div');
         tipsElement.className = 'feature-tips';
 
-        // 获取消息文本并将 \n 转换为 <br>
-        const messageText = chrome.i18n.getMessage(featureKey + 'Feature').replace(/\n/g, '<br>');
+        const content = document.createElement('div');
+        content.className = 'feature-tips-content';
 
-        tipsElement.innerHTML = `
-      <div class="feature-tips-content">
-        <div class="tip-content">
-          ${ICONS['info']}
-          <div class="tip-text">
-            <div class="feature-tips-title">${chrome.i18n.getMessage('newFeatureTitle')}</div>
-            <div class="feature-description">${messageText}</div>
-          </div>
-          <button class="tip-close" aria-label="关闭提示">
-            ${ICONS['close']}
-          </button>
-        </div>
-      </div>
-    `;
+        const tipContent = document.createElement('div');
+        tipContent.className = 'tip-content';
+
+        // 图标为受信静态 SVG 常量，仅在此处注入
+        tipContent.innerHTML = ICONS['info'];
+
+        const tipText = document.createElement('div');
+        tipText.className = 'tip-text';
+
+        const title = document.createElement('div');
+        title.className = 'feature-tips-title';
+        title.textContent = chrome.i18n.getMessage('newFeatureTitle');
+
+        // 消息文本中的 \n 转换为 <br> 元素，等价于原 innerHTML 模板
+        const description = document.createElement('div');
+        description.className = 'feature-description';
+        const messageLines = chrome.i18n.getMessage(featureKey + 'Feature').split('\n');
+        messageLines.forEach((line, index) => {
+            if (index > 0) {
+                description.appendChild(document.createElement('br'));
+            }
+            description.appendChild(document.createTextNode(line));
+        });
+
+        tipText.append(title, description);
+
+        const closeButton = document.createElement('button');
+        closeButton.className = 'tip-close';
+        closeButton.setAttribute('aria-label', '关闭提示');
+        closeButton.innerHTML = ICONS['close'];
+
+        tipContent.append(tipText, closeButton);
+        content.appendChild(tipContent);
+        tipsElement.appendChild(content);
 
         document.body.appendChild(tipsElement);
 
         // 添加关闭按钮事件监听
-        const closeButton = tipsElement.querySelector<HTMLButtonElement>('.tip-close');
-        closeButton?.addEventListener('click', () => {
+        closeButton.addEventListener('click', () => {
             this.closeTips(tipsElement);
         });
     }

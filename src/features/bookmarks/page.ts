@@ -2,6 +2,7 @@ import { featureTips } from '../onboarding/feature-tips';
 import { debounce } from 'radashi';
 import Sortable from 'sortablejs';
 import { createBookmarkCache } from './bookmark-cache';
+import { getCachedCardColors, setCachedCardColors } from './card-colors';
 import { createBookmarkQrCode } from './qr-modal';
 import { getBookmarksBarId } from './root';
 import { pruneDefaultFolders } from './default-folders';
@@ -20,7 +21,6 @@ import {
   getDefaultFolders,
   getNumberProperty,
   getOpenMultipleTabsResponse,
-  isBookmarkColors,
   isUnknownRecord,
 } from './page-parsers';
 import type { BookmarkColors } from './page-parsers';
@@ -38,11 +38,6 @@ import {
 } from '../search/dropdown';
 
 type BookmarkNode = chrome.bookmarks.BookmarkTreeNode;
-type ColorCacheEntry = {
-  readonly colors: BookmarkColors;
-  readonly url: string;
-  readonly timestamp: number;
-};
 type QuickLink = {
   readonly id: string;
   readonly title: string;
@@ -266,113 +261,21 @@ function createContextMenu() {
 
 applySavedBackgroundColor();
 
-// 添加颜色缓存管理器
-const ColorCache = {
-  data: new Map<string, ColorCacheEntry>(),
-  maxSize: 2000, // 最多缓存500个书签的颜色
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7天过期
-  storageKey: 'bookmark-colors-v2', // 新的存储键，避免与旧数据冲突
+// 文件夹卡颜色是恒定默认值（无 favicon 可采样），直接应用即可；
+// 书签卡颜色走 card-colors.ts 的内存缓存 + 延迟落盘，不再有第二套 localStorage 缓存
 
-  // 初始化缓存
-  init() {
-    try {
-      // 从 localStorage 加载缓存数据
-      const cached = localStorage.getItem(this.storageKey);
-      if (cached) {
-        const parsedData = JSON.parse(cached);
-        if (typeof parsedData !== 'object' || parsedData === null) return;
-        Object.entries(parsedData).forEach(([key, value]) => {
-          if (typeof value === 'object' && value !== null &&
-              'timestamp' in value && typeof value.timestamp === 'number' &&
-              'url' in value && typeof value.url === 'string' &&
-              'colors' in value && isBookmarkColors(value.colors) &&
-              Date.now() - value.timestamp < this.maxAge) {
-            this.data.set(key, { timestamp: value.timestamp, url: value.url, colors: value.colors });
-          }
-        });
-      }
-    } catch (error) {
-      console.error('Error initializing color cache:', error instanceof Error ? error : String(error));
-      this.clear();
-    }
-  },
-
-  // 获取颜色
-  get(bookmarkId: string, url: string) {
-    const cached = this.data.get(bookmarkId);
-    if (!cached) return null;
-
-    // 检查URL是否变化和过期时间
-    if (cached.url !== url || Date.now() - cached.timestamp > this.maxAge) {
-      this.data.delete(bookmarkId);
-      return null;
-    }
-
-    return cached.colors;
-  },
-
-  // 设置颜色
-  set(bookmarkId: string, url: string, colors: BookmarkColors) {
-    // 如果缓存即将超出限制，清理旧数据
-    if (this.data.size >= this.maxSize) {
-      this.cleanup();
-    }
-
-    this.data.set(bookmarkId, {
-      colors,
-      url,
-      timestamp: Date.now()
-    });
-
-    // 异步保存到 localStorage
-    this.scheduleSave();
-  },
-
-  // 清理过期和多余的缓存
-  cleanup() {
-    const now = Date.now();
-    const entries = Array.from(this.data.entries());
-
-    // 删除过期项
-    entries.forEach(([key, value]) => {
-      if (now - value.timestamp > this.maxAge) {
-        this.data.delete(key);
-      }
-    });
-
-    // 如果仍然超出限制，删除最旧的项
-    if (this.data.size >= this.maxSize) {
-      const sortedEntries = Array.from(this.data.entries())
-        .sort((a, b) => a[1].timestamp - b[1].timestamp);
-
-      const deleteCount = Math.floor(this.data.size * 0.2);
-      sortedEntries.slice(0, deleteCount).forEach(([key]) => {
-        this.data.delete(key);
-      });
-    }
-  },
-
-  // 清除所有缓存
-  clear() {
-    this.data.clear();
-    localStorage.removeItem(this.storageKey);
-  },
-
-  // 使用防抖保存到 localStorage
-  scheduleSave: debounce({ delay: 1000 }, () => {
-    try {
-      const dataToSave = Object.fromEntries(ColorCache.data);
-      localStorage.setItem(ColorCache.storageKey, JSON.stringify(dataToSave));
-    } catch {
-      // 如果存储失败（比如超出配额），清理一半的缓存后重试
-      const entries = Array.from(ColorCache.data.entries());
-      entries.slice(0, Math.floor(entries.length / 2)).forEach(([key]) => {
-        ColorCache.data.delete(key);
-      });
-      ColorCache.scheduleSave();
-    }
-  })
+const DEFAULT_FOLDER_COLORS: BookmarkColors = {
+  primary: [230, 230, 230],
+  secondary: [240, 240, 240],
 };
+
+function scheduleIdle(callback: () => void): void {
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(() => callback());
+  } else {
+    setTimeout(callback, 0);
+  }
+}
 
 
 
@@ -699,9 +602,7 @@ async function updateBookmarkCards() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-  // Create context menu immediately when the document loads
-  contextMenu = createContextMenu();
-
+  // 书签右键菜单在首次右键时由 showContextMenu 惰性创建，不再启动即构建
   const searchEngineIcon = document.getElementById('search-engine-icon');
   const defaultSearchEngine = localStorage.getItem('selectedSearchEngine') || 'google';
   console.log('[Init] Default search engine:', localStorage.getItem('selectedSearchEngine'));
@@ -723,9 +624,6 @@ document.addEventListener('DOMContentLoaded', function () {
   if (searchEngineIcon instanceof HTMLImageElement && searchEngineIcon.src === '') {
     searchEngineIcon.src = '../images/placeholder-icon.svg';
   }
-  setTimeout(() => {
-    updateSearchEngineIcon(defaultSearchEngine);
-  }, 0);
 
   // 修改 updateSearchEngineIcon 函数
   function updateSearchEngineIcon(engineName: string) {
@@ -748,96 +646,8 @@ document.addEventListener('DOMContentLoaded', function () {
   // 化书顺序步
 
 
-  // 修改右键菜单事件监听器
-  document.addEventListener('contextmenu', async function (event) {
-    if (!(event.target instanceof Element)) return;
-    const targetFolder = event.target.closest<HTMLElement>('.bookmark-folder');
-
-    if (targetFolder) {
-      event.preventDefault();
-      event.stopPropagation(); // 阻止事件冒泡
-
-      // 确保文件夹上下文菜单存在
-      if (!bookmarkFolderContextMenu) {
-        bookmarkFolderContextMenu = createBookmarkFolderContextMenu();
-      }
-
-      if (!bookmarkFolderContextMenu) {
-        console.error('Failed to create bookmark folder context menu');
-        return;
-      }
-
-      // 更新当前文件夹
-      const oldFolder = currentBookmarkFolder;
-        void oldFolder;
-      currentBookmarkFolder = targetFolder;
-
-      // 重新创建菜单项
-      await createMenuItems(bookmarkFolderContextMenu);
-
-      // 先显示菜单但设为不可见，以便获取其尺寸
-      bookmarkFolderContextMenu.style.display = 'block';
-      bookmarkFolderContextMenu.style.visibility = 'hidden';
-      bookmarkFolderContextMenu.style.left = '0';
-      bookmarkFolderContextMenu.style.top = '0';
-
-      // 获取视窗尺寸
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      // 等待一下以确保菜单已渲染
-      const activeFolderMenu = bookmarkFolderContextMenu;
-      setTimeout(() => {
-        const menuRect = activeFolderMenu.getBoundingClientRect();
-
-        // 计算最佳位置
-        let left = event.clientX;
-        let top = event.clientY;
-
-        // 检查右侧空间
-        if (left + menuRect.width > viewportWidth) {
-          // 如果右侧空间不足，尝试将菜单放在点击位置的左侧
-          left = Math.max(5, left - menuRect.width);
-        }
-
-        // 检查底部空间
-        if (top + menuRect.height > viewportHeight) {
-          // 如果底部空间不足，尝试将菜单放在点击位置的上方
-          top = Math.max(5, viewportHeight - menuRect.height - 5);
-        }
-
-        // 应用计算后的位置
-        activeFolderMenu.style.left = `${left}px`;
-        activeFolderMenu.style.top = `${top}px`;
-
-        // 使菜单可见
-        activeFolderMenu.style.visibility = 'visible';
-      }, 0);
-
-      // 隐藏其他上下文菜单
-      if (contextMenu) {
-        contextMenu.style.display = 'none';
-      }
-    }
-  });
-
-  // 修改文档点击事件，确保正确关闭菜单
-  document.addEventListener('click', function(event) {
-    // 如果点击的不是菜单本身，则关闭菜单
-    if (bookmarkFolderContextMenu &&
-        !(event.target instanceof Node && bookmarkFolderContextMenu.contains(event.target)) &&
-        !(event.target instanceof Element && event.target.closest('.bookmark-folder'))) {
-      bookmarkFolderContextMenu.style.display = 'none';
-      currentBookmarkFolder = null; // 重置当前文件夹
-    }
-  });
-
-  // 为菜单本身添加点击事件处理
-  if (bookmarkFolderContextMenu) {
-    bookmarkFolderContextMenu.addEventListener('click', function(event) {
-      event.stopPropagation(); // 阻止事件冒泡到文档
-    });
-  }
+  // 文件夹卡片的右键菜单由 createFolderCard 内的 contextmenu 监听处理
+  // （其中调用了 stopPropagation），document 级兜底监听永远不会命中，已移除。
 
   // 在点击其他地方时重置状态
   document.addEventListener('click', function () {
@@ -974,6 +784,14 @@ function ensureFolderSwiper(): FolderSwiperHandle {
 }
 
 function onPinnedSlideChange(folderId: string): void {
+  // 惰性渲染：未渲染过的 slide 首次滑入时才拉取书签并构建卡片
+  const listForSlide = queryBookmarksList(folderId);
+  if (listForSlide && listForSlide.dataset["parentId"] === undefined) {
+    updateBookmarksDisplay(folderId).catch(error => {
+      console.error('Error lazily rendering pinned slide:', error instanceof Error ? error : String(error));
+    });
+  }
+
   document.querySelectorAll<HTMLElement>('.folder-tab').forEach((tab) => {
     const isActive = tab.dataset["folderId"] === folderId;
     tab.classList.toggle('active', isActive);
@@ -1036,10 +854,7 @@ async function initDefaultFoldersTabs() {
       name: folder.name,
     })), folderToActivate);
 
-    await Promise.all(defaultFolders.map(async (folder) => {
-      await updateBookmarksDisplay(folder.id);
-      updateFolderName(folder.id);
-    }));
+    // 只渲染激活的 slide，其余 slide 首次滑入时由 onPinnedSlideChange 惰性渲染
     await switchToFolder(folderToActivate);
   } else {
     const folderToActivate = await getBookmarksBarId(chrome.bookmarks);
@@ -1143,11 +958,17 @@ function updateBookmarksDisplay(parentId: string, movedItemId?: string, _newInde
 
 window.updateBookmarksDisplay = updateBookmarksDisplay;
 
-// 获取书栏的本地化名称
+// 获取书签栏的本地化名称；优先复用已缓存的整棵树，避免每次面包屑更新都拉全树
 function getBookmarksBarName(): Promise<string> {
+  const cachedBar = bookmarkTreeNodes[0]?.children?.find(child => child.id === '1');
+  if (cachedBar) {
+    return Promise.resolve(cachedBar.title);
+  }
+
   return new Promise<string>(resolve => {
     chrome.bookmarks.getTree(function(tree) {
       if (tree && tree[0] && tree[0].children) {
+        bookmarkTreeNodes = tree;
         const bookmarksBar = tree[0].children.find(child => child.id === '1');
         if (bookmarksBar) {
           resolve(bookmarksBar.title);
@@ -1291,10 +1112,20 @@ function displayBookmarks(bookmark: BookmarkDisplay, _animate = true) {
     return;
   }
 
-  const fragment = document.createDocumentFragment();
   const itemsToDisplay = [...(bookmark.children ?? [])];
 
   itemsToDisplay.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+
+  // 子项 id 序列与当前 DOM 一致时跳过重建：书签事件同步（已合流）在无实际
+  // 变化时不再付出全量重建与 favicon 重载的代价；标题/URL 的单卡更新走 card-update
+  if (
+    bookmarksList.dataset["parentId"] === bookmark.id &&
+    sameBookmarkSequence(bookmarksList, itemsToDisplay)
+  ) {
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
 
   itemsToDisplay.forEach((child: BookmarkNode) => {
     if (child.url) {
@@ -1311,6 +1142,21 @@ function displayBookmarks(bookmark: BookmarkDisplay, _animate = true) {
   bookmarksContainer.classList.add('loaded');
   bindBookmarkListSortable(bookmarksList);
   ensureScrollIndicator(bookmarksContainer, bookmarksList);
+}
+
+// 比较 list 现有卡片与目标书签序列是否完全一致（id 顺序、URL 与标题）。
+// 标题/URL 也需比对：外部改名/改址的书签事件依赖此处差异触发重建来刷新 DOM
+function sameBookmarkSequence(bookmarksList: HTMLElement, items: readonly BookmarkNode[]): boolean {
+  const cards = bookmarksList.children;
+  if (cards.length !== items.length) return false;
+  for (const [index, item] of items.entries()) {
+    const card = cards[index];
+    if (!(card instanceof HTMLElement)) return false;
+    if (card.dataset["id"] !== item.id) return false;
+    if ((card.dataset["url"] ?? '') !== (item.url ?? '')) return false;
+    if ((card.querySelector<HTMLElement>('.card-title')?.textContent ?? '') !== item.title) return false;
+  }
+  return true;
 }
 
 // 取色前先降采样到 64×64 离屏画布，避免对原图逐像素扫描产生海量字符串分配与排序
@@ -1366,27 +1212,29 @@ function createBookmarkCard(bookmark: BookmarkNode, index: number) {
   card.dataset["id"] = bookmark.id;
   card.dataset["parentId"] = bookmark.parentId;
   card.dataset["index"] = index.toString();
+  // 委托监听器从 dataset 取 URL（card-update 编辑后会同步刷新该值）
+  card.dataset["url"] = bookmarkUrl;
 
   const img = document.createElement('img');
   img.className = 'w-6 h-6 mr-2';
-  img.src = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(bookmarkUrl)}&size=32`;
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.src = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(bookmarkUrl)}&size=32&cache=1`;
 
   // 尝试从缓存获取颜色
-  const cachedColors = localStorage.getItem(`bookmark-colors-${bookmark.id}`);
+  const cachedColors = getCachedCardColors(bookmark.id);
 
   if (cachedColors) {
-    // 如果有缓存，直接应用缓存的颜色
-    const colors = JSON.parse(cachedColors);
-    applyColors(card, colors);
-
-    // 只加载 favicon 图片，不重新计算颜色
-    img.onload = null;
+    // 如果有缓存，直接应用缓存的颜色，只加载 favicon 不重新计算颜色
+    applyColors(card, cachedColors);
   } else {
-    // 只在没有缓存时计算颜色
+    // 只在没有缓存时计算颜色，取色挪到空闲时段避免与渲染同帧
     img.onload = function() {
-      const colors = getColors(img);
-      applyColors(card, colors);
-      localStorage.setItem(`bookmark-colors-${bookmark.id}`, JSON.stringify(colors));
+      scheduleIdle(() => {
+        const colors = getColors(img);
+        applyColors(card, colors);
+        setCachedCardColors(bookmark.id, colors);
+      });
     };
   }
 
@@ -1394,7 +1242,7 @@ function createBookmarkCard(bookmark: BookmarkNode, index: number) {
     // 处 favicon 加载失败的情况
     const defaultColors = { primary: [200, 200, 200], secondary: [220, 220, 220] };
     applyColors(card, defaultColors);
-    localStorage.setItem(`bookmark-colors-${bookmark.id}`, JSON.stringify(defaultColors));
+    setCachedCardColors(bookmark.id, defaultColors);
   };
 
   const favicon = document.createElement('div');
@@ -1412,82 +1260,66 @@ function createBookmarkCard(bookmark: BookmarkNode, index: number) {
   content.appendChild(title);
   card.appendChild(content);
 
-  card.addEventListener('contextmenu', function(event) {
-    event.preventDefault();
-    event.stopPropagation(); // 阻止事件冒泡，防止触发文档级的contextmenu事件监听器
-    console.log('Bookmark context menu triggered:', bookmark);
-    showContextMenu(event, bookmark, 'bookmark'); // 明确指定类型为 'bookmark'
-  });
-
-  // 添加鼠标悬停效果
-  card.addEventListener('mouseenter', function() {
-    this.style.transform = 'scale(1.03)';
-    this.style.boxShadow = '0 1px 1px rgba(0,0,0,0.01)';
-    this.style.backgroundColor = 'rgba(255,255,255,1)';
-  });
-
-  card.addEventListener('mouseleave', function() {
-    this.style.transform = 'scale(1)';
-    this.style.boxShadow = '';
-    this.style.backgroundColor = '';
-  });
-
-  // 在文件顶部添加防重复点击控制
-  let isProcessingClick = false;
-  const CLICK_COOLDOWN = 500; // 点击冷却时间
-
-  // 只使用一个事件处理器
-  card.addEventListener('click', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (isProcessingClick) return;
-    isProcessingClick = true;
-
-    try {
-      const isInternalUrl = bookmarkUrl.startsWith('chrome://') ||
-                           bookmarkUrl.startsWith('chrome-extension://') ||
-                           bookmarkUrl.startsWith('edge://') ||
-                           bookmarkUrl.startsWith('about:');
-
-      console.log('[Bookmark Click] Starting...', {
-        url: bookmarkUrl,
-        isInternalUrl: isInternalUrl
-      });
-
-      // 处理内部链接
-      if (isInternalUrl) {
-        console.log('[Bookmark Click] Opening internal URL');
-        chrome.tabs.create({
-          url: bookmarkUrl,
-          active: true
-        }).then(tab => {
-          console.log('[Bookmark Click] Internal tab created successfully:', tab);
-        }).catch(error => {
-          console.error('[Bookmark Click] Failed to create internal tab:', error);
-        });
-        return;
-      }
-
-      console.log('[Bookmark Click] Opening in Main Window mode');
-      chrome.storage.sync.get(['openInNewTab'], (rawResult: unknown) => {
-        if (getBooleanProperty(rawResult, 'openInNewTab') !== false) {
-          window.open(bookmarkUrl, '_blank');
-        } else {
-          window.location.href = bookmarkUrl;
-        }
-      });
-    } catch (error) {
-      console.error('[Bookmark Click] Error:', error instanceof Error ? error : String(error));
-    } finally {
-      setTimeout(() => {
-        isProcessingClick = false;
-      }, CLICK_COOLDOWN);
-    }
-  });
+  // 右键菜单、点击与悬停均不逐卡绑定：contextmenu/click 走文档级事件委托
+  //（见 setupBookmarkCardDelegation），悬停效果由 styles.css 的
+  // .bookmark-card.card:hover 提供
 
   return card;
 }
+
+// 书签卡的点击与右键菜单：document 级事件委托，全量重建卡片时不再重复创建监听器
+const BOOKMARK_CARD_CLICK_COOLDOWN = 500;
+let lastBookmarkCardClickAt = 0;
+
+function setupBookmarkCardDelegation(): void {
+  document.addEventListener('contextmenu', function (event) {
+    if (!(event.target instanceof Element)) return;
+    const card = event.target.closest<HTMLElement>('.bookmark-card');
+    if (!card) return;
+    event.preventDefault();
+    event.stopPropagation();
+    showContextMenu(event, card, 'bookmark');
+  });
+
+  document.addEventListener('click', function (event) {
+    if (!(event.target instanceof Element)) return;
+    const card = event.target.closest<HTMLElement>('.bookmark-card');
+    if (!card) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (Date.now() - lastBookmarkCardClickAt < BOOKMARK_CARD_CLICK_COOLDOWN) return;
+    lastBookmarkCardClickAt = Date.now();
+
+    const bookmarkUrl = card.dataset['url'] ?? '';
+    if (!bookmarkUrl) return;
+
+    const isInternalUrl = bookmarkUrl.startsWith('chrome://') ||
+                         bookmarkUrl.startsWith('chrome-extension://') ||
+                         bookmarkUrl.startsWith('edge://') ||
+                         bookmarkUrl.startsWith('about:');
+
+    if (isInternalUrl) {
+      chrome.tabs.create({
+        url: bookmarkUrl,
+        active: true
+      }).catch(error => {
+        console.error('[Bookmark Click] Failed to create internal tab:', error);
+      });
+      return;
+    }
+
+    chrome.storage.sync.get(['openInNewTab'], (rawResult: unknown) => {
+      if (getBooleanProperty(rawResult, 'openInNewTab') !== false) {
+        window.open(bookmarkUrl, '_blank');
+      } else {
+        window.location.href = bookmarkUrl;
+      }
+    });
+  });
+}
+
+setupBookmarkCardDelegation();
 
 function adjustColor(r: number, g: number, b: number) {
   const brightness = (r * 299 + g * 587 + b * 114) / 1000;
@@ -1817,17 +1649,16 @@ function deleteBookmark(bookmarkId: string, _bookmarkTitle: string) {
       // 保留成功删除的日志，但简化
       Utilities.showToast(getLocalizedMessage('deleteSuccess'));
 
-      // 清除相关缓存
-      bookmarksCache.clear();
+      // 只清除受影响父目录的缓存，避免全量失效后所有文件夹重新 IPC
+      const activeParentId = getActiveBookmarksList()?.dataset["parentId"];
+      if (activeParentId) {
+        bookmarksCache.delete(activeParentId);
 
-      // 更新父文件夹的显示
-      const parentId = getActiveBookmarksList()?.dataset["parentId"];
-      if (parentId) {
         // 不需要完全刷新，因为我们已经从界面上移除了书签卡片
         // 但我们需要更新缓存和排序
-        chrome.bookmarks.getChildren(parentId, (bookmarks) => {
+        chrome.bookmarks.getChildren(activeParentId, (bookmarks) => {
           if (!chrome.runtime.lastError) {
-            bookmarkOrderCache[parentId] = bookmarks.map(b => b.id);
+            bookmarkOrderCache[activeParentId] = bookmarks.map(b => b.id);
           }
         });
       }
@@ -1883,19 +1714,8 @@ function createFolderCard(folder: BookmarkNode, index: number) {
     updateFolderName(folder.id);
   });
 
-  // 从缓存获取文件夹颜色
-  const cachedColors = ColorCache.get(folder.id, 'folder');
-  if (cachedColors) {
-    applyColors(card, cachedColors);
-  } else {
-    // 为文件夹生成默认颜色
-    const defaultColors = {
-      primary: [230, 230, 230],    // 稍微浅一点的灰色
-      secondary: [240, 240, 240]    // 更浅的灰色
-    };
-    applyColors(card, defaultColors);
-    ColorCache.set(folder.id, 'folder', defaultColors);
-  }
+  // 文件夹卡颜色为恒定默认值，无需缓存
+  applyColors(card, DEFAULT_FOLDER_COLORS);
 
   // 修改右键点击事件，使用文件夹的上下文菜单
   card.addEventListener('contextmenu', async function (event) {
@@ -2008,6 +1828,38 @@ function setupActiveBookmarkListSortable(): void {
   if (bookmarksList) bindBookmarkListSortable(bookmarksList);
 }
 
+// 嵌套子列表的拖拽排序：仅在懒构建发生时按需绑定，不再对整棵树预建实例
+function bindNestedFolderSortable(folder: HTMLUListElement): void {
+  nestedFolderSortables.push(new Sortable(folder, {
+    group: 'nested',
+    animation: 150,
+    fallbackOnBody: true,
+    swapThreshold: 0.65,
+    onStart: function (evt) {
+      console.log('Subfolder drag started:', evt.item.dataset["id"]);
+    },
+    onEnd: function (evt) {
+      const itemEl = evt.item;
+      const newIndex = evt.newIndex;
+      const bookmarkId = itemEl.dataset["id"];
+      const newParentId = evt.to.closest<HTMLElement>('li')?.dataset["id"] ?? '1';
+
+      console.log('Subfolder item moved:', {
+        bookmarkId: bookmarkId,
+        newParentId: newParentId,
+        oldIndex: evt.oldIndex,
+        newIndex: newIndex,
+        fromList: evt.from.id,
+        toList: evt.to.id
+      });
+
+      if (evt.oldIndex !== evt.newIndex || evt.from !== evt.to) {
+        if (bookmarkId !== undefined && newIndex !== undefined) moveBookmark(bookmarkId, newParentId, newIndex);
+      }
+    }
+  }));
+}
+
 function setupSidebarSortable(): void {
   const categoriesList = document.getElementById('categories-list');
   if (!categoriesList) {
@@ -2046,37 +1898,6 @@ function setupSidebarSortable(): void {
         if (bookmarkId !== undefined && newIndex !== undefined) moveBookmark(bookmarkId, newParentId, newIndex);
       }
     }
-  });
-
-  categoriesList.querySelectorAll<HTMLElement>('li ul').forEach((folder) => {
-    nestedFolderSortables.push(new Sortable(folder, {
-      group: 'nested',
-      animation: 150,
-      fallbackOnBody: true,
-      swapThreshold: 0.65,
-      onStart: function (evt) {
-        console.log('Subfolder drag started:', evt.item.dataset["id"]);
-      },
-      onEnd: function (evt) {
-        const itemEl = evt.item;
-        const newIndex = evt.newIndex;
-        const bookmarkId = itemEl.dataset["id"];
-        const newParentId = evt.to.closest<HTMLElement>('li')?.dataset["id"] ?? '1';
-
-        console.log('Subfolder item moved:', {
-          bookmarkId: bookmarkId,
-          newParentId: newParentId,
-          oldIndex: evt.oldIndex,
-          newIndex: newIndex,
-          fromList: evt.from.id,
-          toList: evt.to.id
-        });
-
-        if (evt.oldIndex !== evt.newIndex || evt.from !== evt.to) {
-          if (bookmarkId !== undefined && newIndex !== undefined) moveBookmark(bookmarkId, newParentId, newIndex);
-        }
-      }
-    }));
   });
 }
 
@@ -2158,6 +1979,101 @@ function highlightBookmark(itemId: string) {
 }
 
 // 修改 displayBookmarkCategories 函数，添加清理逻辑
+// 侧边栏书签树：只构建当前层级，子层级首次展开时懒构建；
+// 点击用 #categories-list 上的事件委托，不再逐 li 绑定监听器
+let sidebarClickDelegationBound = false;
+
+function ensureSidebarClickDelegation(): void {
+  if (sidebarClickDelegationBound) return;
+  const categoriesList = document.getElementById('categories-list');
+  if (!categoriesList) return;
+  sidebarClickDelegationBound = true;
+
+  categoriesList.addEventListener('click', function (event) {
+    if (!(event.target instanceof Element)) return;
+    const li = event.target.closest<HTMLElement>('li');
+    if (!li || !categoriesList.contains(li)) return;
+    event.stopPropagation();
+
+    const folderId = li.dataset["id"];
+    if (folderId === undefined) return;
+
+    const sublist = li.nextElementSibling instanceof HTMLUListElement ? li.nextElementSibling : null;
+    if (sublist) {
+      const isExpanded = sublist.style.display === 'block';
+      sublist.style.display = isExpanded ? 'none' : 'block';
+      const arrowIcon = li.querySelector<HTMLElement>('.material-icons.ml-auto');
+      if (arrowIcon) {
+        arrowIcon.innerHTML = isExpanded ? ICONS.chevron_right : ICONS.expand_less;
+      }
+      // 首次展开时从缓存的整棵树懒构建子层级，并按需绑定嵌套拖拽
+      if (!isExpanded && sublist.dataset["built"] !== '1') {
+        buildSubfolderItems(sublist, folderId);
+      }
+    }
+
+    document.querySelectorAll<HTMLElement>('#categories-list li').forEach(function (item) {
+      item.classList.remove('bg-emerald-500');
+    });
+    li.classList.add('bg-emerald-500');
+
+    updateBookmarksDisplay(folderId);
+  });
+}
+
+// 侧边栏单个文件夹条目：li 与（仅有子文件夹可展开时的）空 sublist 占位
+function createSidebarFolderItem(bookmark: BookmarkNode, level: number): { readonly li: HTMLLIElement; readonly sublist: HTMLUListElement | null } {
+  const li = document.createElement('li');
+  li.className = 'cursor-pointer p-2 hover:bg-emerald-500 rounded-lg flex items-center folder-item';
+  li.style.paddingLeft = `${(level * 20) + 8}px`;
+  li.dataset["title"] = bookmark.title;
+  li.dataset["id"] = bookmark.id;
+  li.dataset["level"] = level.toString();
+
+  const span = document.createElement('span');
+  span.textContent = bookmark.title;
+
+  const folderIcon = document.createElement('span');
+  folderIcon.className = 'material-icons mr-2';
+  folderIcon.innerHTML = ICONS.folder;
+  li.insertBefore(folderIcon, li.firstChild);
+
+  const hasSubfolders = bookmark.children?.some((child: BookmarkNode) => child.children) ?? false;
+  let sublist: HTMLUListElement | null = null;
+  if (hasSubfolders) {
+    const arrowIcon = document.createElement('span');
+    arrowIcon.className = 'material-icons ml-auto';
+    arrowIcon.innerHTML = ICONS.chevron_right;
+    li.appendChild(arrowIcon);
+
+    sublist = document.createElement('ul');
+    sublist.className = 'pl-4 space-y-2';
+    sublist.style.display = 'none';
+    sublist.dataset["built"] = '0';
+  }
+
+  li.appendChild(span);
+  return { li, sublist };
+}
+
+function appendSidebarFolderItems(container: HTMLElement, nodes: readonly BookmarkNode[], level: number): void {
+  for (const bookmark of nodes) {
+    if (!bookmark.children || bookmark.children.length === 0) continue;
+    const item = createSidebarFolderItem(bookmark, level);
+    container.appendChild(item.li);
+    if (item.sublist) container.appendChild(item.sublist);
+  }
+}
+
+function buildSubfolderItems(sublist: HTMLUListElement, folderId: string): void {
+  sublist.dataset["built"] = '1';
+  const level = Number.parseInt(sublist.previousElementSibling instanceof HTMLElement
+    ? sublist.previousElementSibling.dataset["level"] ?? '1'
+    : '1', 10);
+  appendSidebarFolderItems(sublist, findFolderNodeInTree(folderId)?.children ?? [], Number.isFinite(level) ? level + 1 : 1);
+  bindNestedFolderSortable(sublist);
+}
+
 function displayBookmarkCategories(bookmarkNodes: BookmarkNode[], level: number, parentUl: HTMLUListElement | null, parentId: string) {
   const categoriesList = parentUl || document.getElementById('categories-list');
   if (!categoriesList) return;
@@ -2171,62 +2087,13 @@ function displayBookmarkCategories(bookmarkNodes: BookmarkNode[], level: number,
     categoriesList.style.display = 'block';
   }
 
-  bookmarkNodes.forEach(function (bookmark: BookmarkNode) {
-    if (bookmark.children && bookmark.children.length > 0) {
-      let li = document.createElement('li');
-      li.className = 'cursor-pointer p-2 hover:bg-emerald-500 rounded-lg flex items-center folder-item';
-      li.style.paddingLeft = `${(level * 20) + 8}px`;
-      li.dataset["title"] = bookmark.title;
-      li.dataset["id"] = bookmark.id;
+  // 只构建首层；深层级由首次展开时的懒构建补齐
+  appendSidebarFolderItems(categoriesList, bookmarkNodes, level);
 
-      let span = document.createElement('span');
-      span.textContent = bookmark.title;
-
-      const folderIcon = document.createElement('span');
-      folderIcon.className = 'material-icons mr-2';
-      folderIcon.innerHTML = ICONS.folder;
-      li.insertBefore(folderIcon, li.firstChild);
-
-      const hasSubfolders = bookmark.children.some((child: BookmarkNode) => child.children);
-      let arrowIcon: HTMLElement | null;
-      if (hasSubfolders) {
-        arrowIcon = document.createElement('span');
-        arrowIcon.className = 'material-icons ml-auto';
-        arrowIcon.innerHTML = ICONS.chevron_right;
-        li.appendChild(arrowIcon);
-      }
-
-      let sublist = document.createElement('ul');
-      sublist.className = 'pl-4 space-y-2';
-      sublist.style.display = 'none';
-
-      li.addEventListener('click', function (event) {
-        event.stopPropagation();
-        if (hasSubfolders) {
-          let isExpanded = sublist.style.display === 'block';
-          sublist.style.display = isExpanded ? 'none' : 'block';
-          if (arrowIcon) {
-            arrowIcon.innerHTML = isExpanded ? ICONS.chevron_right : ICONS.expand_less;
-          }
-        }
-
-        document.querySelectorAll<HTMLElement>('#categories-list li').forEach(function (item) {
-          item.classList.remove('bg-emerald-500');
-        });
-        li.classList.add('bg-emerald-500');
-
-        updateBookmarksDisplay(bookmark.id);
-      });
-
-      li.appendChild(span);
-      categoriesList.appendChild(li);
-      categoriesList.appendChild(sublist);
-
-      displayBookmarkCategories(bookmark.children, level + 1, sublist, bookmark.id);
-    }
-  });
-
-  if (!parentUl) setupSidebarSortable();
+  if (!parentUl) {
+    ensureSidebarClickDelegation();
+    setupSidebarSortable();
+  }
 }
 
 // 添加一个获取文件夹内书签数量的函数
@@ -2462,16 +2329,6 @@ async function createMenuItems(menu: HTMLElement) {
 
 // 添加文件夹相关的全局变量
 // Add event listeners or logic that uses these variables
-document.addEventListener('DOMContentLoaded', () => {
-  // Example initialization logic
-  bookmarkFolderContextMenu = document.querySelector<HTMLElement>('#bookmark-folder-context-menu');
-  currentBookmarkFolder = document.querySelector<HTMLElement>('.bookmark-folder.active');
-
-  // Ensure these elements exist before using them
-  if (bookmarkFolderContextMenu && currentBookmarkFolder) {
-    // Add your event listeners or logic here
-  }
-});
 
 
 function openEditBookmarkFolderDialog(folderElement: HTMLElement) {
@@ -2576,6 +2433,8 @@ function startBookmarkSync() {
     () => getActiveBookmarksList()?.dataset["parentId"],
     syncBookmarkOrder,
     (error) => console.error('Error during bookmark sync:', error instanceof Error ? error : String(error)),
+    // 书签事件风暴（批量导入/删除目录树）时合流，避免每个事件全量拉取+重渲
+    { quietPeriodMs: 100 },
   );
 }
 
@@ -2664,11 +2523,39 @@ function selectSidebarFolder(folderId: string) {
   });
 }
 
+// 在缓存的整棵书签树里查找目标文件夹节点；树未加载时返回 undefined
+function findFolderNodeInTree(folderId: string): BookmarkNode | undefined {
+  const root = bookmarkTreeNodes[0];
+  if (!root) return undefined;
+
+  const pending: BookmarkNode[] = [...(root.children ?? [])];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node === undefined) continue;
+    if (node.id === folderId) return node;
+    if (node.children) pending.push(...node.children);
+  }
+  return undefined;
+}
+
+// 统计目标文件夹内的 http 书签数（含子层级）；树未加载时返回 null，由调用方回退到逐层 IPC 递归
+function countHttpBookmarksInTree(folderId: string): number | null {
+  const target = findFolderNodeInTree(folderId);
+  if (!target?.children) return null;
+
+  let count = 0;
+  const countUrls = (nodes: readonly BookmarkNode[]): void => {
+    for (const node of nodes) {
+      if (node.url?.startsWith('http')) count += 1;
+      if (node.children) countUrls(node.children);
+    }
+  };
+  countUrls(target.children);
+  return count;
+}
+
 // 确在 DOMContentLoaded 事件初始化上文菜单
-document.addEventListener('DOMContentLoaded', function () {
-  // ... 其他初始化代码 ...
-  createBookmarkFolderContextMenu();
-});
+// 文件夹右键菜单在首次右键时惰性创建，不再启动即构建
 
 
 
@@ -2729,36 +2616,9 @@ document.addEventListener('DOMContentLoaded', function () {
   // 添加点击事件监听器
   toggleSidebarButton.addEventListener('click', toggleSidebar);
 
-  document.addEventListener('click', function (event) {
-    if (event.target instanceof Element && event.target.closest('#categories-list li')) {
-      updateBookmarkCards();
-    }
-  });
-
-  updateBookmarkCards();
-
-  // 注释掉这个重复的createContextMenu函数定义，使用全局已经定义的函数
-  /* function createContextMenu() {
-    const menu = document.createElement('div');
-    menu.className = 'custom-context-menu';
-    document.body.appendChild(menu);
-    // ... 其余函数内容 ...
-  } */
-
-  document.addEventListener('click', function () {
-    // 延迟处理点击事件，让菜单项的点击事件先执行
-    setTimeout(() => {
-    if (contextMenu) {
-      contextMenu.style.display = 'none';
-        currentBookmark = null;
-      }
-
-      if (bookmarkFolderContextMenu) {
-        bookmarkFolderContextMenu.style.display = 'none';
-        currentBookmarkFolder = null;
-      }
-    }, 200);
-  });
+  // 侧边栏文件夹点击由 displayBookmarkCategories 的 li 监听器处理
+  //（其中调用了 stopPropagation），document 级重复监听已移除。
+  // updateBookmarkCards 已在首个 DOMContentLoaded 块中调用，不再重复执行。
 
   const editDialog = requireElement(document.getElementById('edit-dialog'), HTMLElement, '#edit-dialog');
   const closeButton = requireElement(document.querySelector('.close-button'), HTMLElement, '.close-button');
@@ -2778,12 +2638,6 @@ document.addEventListener('DOMContentLoaded', function () {
       editDialog.style.display = 'none';
     }
   };
-
-
-
-
-  // 调用 updateBookmarkCards
-  updateBookmarkCards();
 
 
 
@@ -2975,15 +2829,23 @@ document.addEventListener('DOMContentLoaded', function () {
 
       if (currentCategory) {
         const folderId = currentCategory.dataset["id"];
-        // 使用新的递归函数获取总书签数量
         if (folderId === undefined) return;
-        getAllBookmarksCount(folderId).then(totalCount => {
+
+        const showMenu = (totalCount: number): void => {
           categoryContextMenu.updateMenuItems(totalCount);
 
           categoryContextMenu.menu.style.top = `${event.clientY}px`;
           categoryContextMenu.menu.style.left = `${event.clientX}px`;
           categoryContextMenu.menu.style.display = 'block';
-        });
+        };
+
+        // 优先用已缓存的整棵树在内存里数数，缓存缺失时回退到逐层 IPC 递归
+        const cachedCount = countHttpBookmarksInTree(folderId);
+        if (cachedCount !== null) {
+          showMenu(cachedCount);
+        } else {
+          getAllBookmarksCount(folderId).then(showMenu);
+        }
       }
     } else {
       categoryContextMenu.menu.style.display = 'none';
@@ -3077,19 +2939,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
 
-// 确保在 DOMContentLoaded 时调用创建函数
-document.addEventListener('DOMContentLoaded', function() {
-  createSearchEngineDropdown();
-  // ... 其他初始化代码 ...
-});
+// 搜索引擎下拉已在首个 DOMContentLoaded 块中初始化，此处不再重复调用
 
 
 
 
 
 
-  // 在适当时机调用此函数
-  document.addEventListener('DOMContentLoaded', setVersionNumber);
+  // setVersionNumber 由下方带 100ms 延迟的注册统一触发，不再重复注册
 
   // 修改文档点击事件监听器，同时处理书签和文件夹的上下文菜单
   document.addEventListener('click', function (_event) {
@@ -3236,11 +3093,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 
-  // 监听默认文件夹变化
-  document.addEventListener('defaultFoldersChanged', async (_event) => {
-    await initDefaultFoldersTabs();
-  });
-
+  // 默认文件夹变化时，toggleDefaultFolder 已直接调用 initDefaultFoldersTabs，
+  // 此处若再监听重建会导致一次点击两轮全量重建
   // 在文档加载完成后初始化
   document.addEventListener('DOMContentLoaded', async () => {
     await initDefaultFoldersTabs();
@@ -3360,13 +3214,31 @@ function ensureScrollIndicator(bookmarksContainer: HTMLElement, bookmarksList: H
     }
   });
 
-  // 初始检查和窗口大小变化时重新检查
-  checkScrollable();
-  window.addEventListener('resize', debounce({ delay: 200 }, checkScrollable));
+  // 初始检查和窗口大小变化时重新检查；列表被 swiper rebuild 替换后
+  // 通过 isConnected 自检释放全局监听与观察器，避免旧 slide 整树无法回收
+  let released = false;
 
-  // 当书签列表内容变化时重新检查
-  const observer = new MutationObserver(debounce({ delay: 200 }, checkScrollable));
-  observer.observe(bookmarksList, { childList: true, subtree: true });
+  const release = (): void => {
+    if (released) return;
+    released = true;
+    observer.disconnect();
+    window.removeEventListener('resize', onResize);
+  };
+
+  const guardedCheckScrollable = (): void => {
+    if (!bookmarksList.isConnected) {
+      release();
+      return;
+    }
+    checkScrollable();
+  };
+
+  const onResize = debounce({ delay: 200 }, guardedCheckScrollable);
+  const observer = new MutationObserver(debounce({ delay: 200 }, guardedCheckScrollable));
+
+  observer.observe(bookmarksList, { childList: true });
+  window.addEventListener('resize', onResize);
+  guardedCheckScrollable();
 
   // 点击指示器滚动到下一屏
   scrollIndicator.addEventListener('click', () => {

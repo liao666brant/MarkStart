@@ -1,0 +1,74 @@
+
+.folder-swiper-host {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+}
+
+.folder-swiper {
+  --swiper-wrapper-transition-timing-function: cubic-bezier(0.645, 0.045, 0.355, 1);
+  height: 100%;
+  width: 100%;
+}
+
+.folder-swiper .swiper-slide {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.folder-swiper .bookmarks-container {
+  width: var(--bookmark-container-width, 85%);
+  height: calc(var(--bookmark-container-height, 100%) - 2rem);
+  max-height: calc(100% - 2rem);
+  margin: 1rem auto;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+}
+
+.bookmarks-scroller {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.bookmarks-scroller.fade-top {
+  --fade-top: 48px;
+}
+
+.bookmarks-scroller.fade-bottom {
+  --fade-bottom: 48px;
+}
+
+.bookmarks-scroller.fade-top,
+.bookmarks-scroller.fade-bottom {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--fade-top, 0px),
+    #000 calc(100% - var(--fade-bottom, 0px)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--fade-top, 0px),
+    #000 calc(100% - var(--fade-bottom, 0px)),
+    transparent
+  );
+}
+
+.folder-swiper .bookmarks-list {
+  display: grid;
+  height: 100%;
+  overflow-y: auto;
+  align-content: start;
+  align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(var(--bookmark-width, 190px), 1fr));
+}

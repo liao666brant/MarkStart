@@ -1,0 +1,241 @@
+.settings-background-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.settings-bg-option {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+  background-size: 200% 200%;
+  background-position: center;
+  border: 2px solid transparent;
+  transition: border-color 0.3s;
+}
+
+.settings-bg-option.active {
+  border-color: @primary;
+}
+
+
+.upload-wallpaper-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.upload-wallpaper-label:hover {
+  background-color: @dark-text;
+}
+
+#upload-wallpaper {
+  display: none;
+}
+
+/* Material Icons 字体声明 */
+
+
+.material-icons {
+  font-family: 'Material Icons';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 18px;  /* 统一图标大小 */
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* 暗黑模式下的背景渐变类 */
+[data-theme="dark"] html[class*="gradient-background"] {
+  background: transparent !important;  /* 移除 html 的背景，让 body 的背景显示 */
+}
+
+/* 暗黑模式下确保 body 背景色优先级 */
+[data-theme="dark"] body {
+  background-color: @dark-bg !important;
+}
+
+/* 当有壁纸时，移除暗色背景 */
+[data-theme="dark"] body.has-wallpaper {
+  background-color: transparent !important;
+}
+
+/* 暗黑模式下的壁纸容器样式 */
+[data-theme="dark"] .wallpaper-option {
+  border: 2px solid @dark-surface-2;
+  background-color: @dark-surface;
+}
+
+/* 暗黑模式下的背景颜色选项样式 */
+[data-theme="dark"] .settings-bg-option {
+  opacity: 0.8;  /* 降低亮色背景的不透明度 */
+}
+
+[data-theme="dark"] .settings-bg-option.active {
+  border-color: @primary;
+    opacity: 1;
+}
+
+[data-theme="dark"] .bookmark-folder:hover,
+[data-theme="dark"] .bookmark-folder:hover .card-title {
+  background-color: @dark-surface-2;
+  color: #ffffff !important;
+}
+
+.wallpaper-options::-webkit-scrollbar {
+    width: 8px;
+}
+
+.wallpaper-options::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.wallpaper-options::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+.wallpaper-options::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+[data-theme="dark"] .wallpaper-options::-webkit-scrollbar-track {
+    background: #2d2d2d;
+}
+
+[data-theme="dark"] .wallpaper-options::-webkit-scrollbar-thumb {
+    background: #666;
+}
+
+[data-theme="dark"] .wallpaper-options::-webkit-scrollbar-thumb:hover {
+    background: #888;
+}
+
+/* 设置区域小标题样式 */
+.settings-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1a202c;
+    margin-bottom: 12px;
+    margin-top: 12px;
+}
+
+/* 暗色模式适配 */
+[data-theme="dark"] .settings-section-title {
+    color: @dark-text;
+}
+
+/* 修改标识样式 */
+.uploaded-wallpaper-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background-color: rgba(55, 65, 81, 0.85);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    pointer-events: none;
+    backdrop-filter: blur(2px);
+}
+
+/* 暗色模式适配 */
+[data-theme="dark"] .uploaded-wallpaper-badge {
+    background-color: rgba(229, 231, 235, 0.85);
+    color: #1f2937;
+}
+
+/* 确保壁纸选项可以正确显示标识 */
+.wallpaper-option {
+    position: relative;
+    overflow: visible;
+}
+
+[data-theme="dark"] .about-description {
+  color: @dark-text;
+  /* 使用较亮的颜色以提高在暗色背景下的可读性 */
+}
+/* 暗色模式适配 */
+[data-theme="dark"] .about-link {
+  background-color: #2d2d2d;
+  color: @dark-text;
+  border: 1px solid #4b5563;
+}
+
+[data-theme="dark"] .about-link:hover {
+  background-color: @dark-surface-2;
+  color: @primary;
+}
+[data-theme="dark"] .settings-sidebar {
+  background-color: @dark-bg;
+  box-shadow: -1px 0 5px rgba(0, 0, 0, 0.05); /* 减轻阴影 */
+  border-left: 1px solid @dark-surface-2; /* 添加左边框 */
+}
+/* 暗色模式适配 */
+[data-theme="dark"] .official-website a {
+  color: @dark-text;
+}
+
+[data-theme="dark"] .official-website a span {
+  color: #60a5fa;
+}
+
+[data-theme="dark"] .official-website a:hover {
+  color: #60a5fa;
+}
+/* 添加到您的 styles.css 文件中 */
+[data-theme="dark"] #theme-toggle-btn {
+  background: @dark-surface-2;
+  border-color: @dark-surface-2;
+  padding: 8px;
+  /* 添加内边距 */
+  border-radius: 8px;
+  /* 添加圆角 */
+  transition: background-color 0.2s;
+  /* 添加过渡效果 */
+}
+
+[data-theme="dark"] #theme-toggle-btn:hover {
+  background-color: @dark-surface-2;
+  /* hover 时的背景色 */
+}
+
+/* 确保图标在 hover 时颜色变化 */
+[data-theme="dark"] #theme-toggle-btn:hover svg {
+  fill: @dark-surface;
+  /* hover 时图标颜色变深 */
+}
+/* 暗色模式下的样式 */
+[data-theme="dark"] #theme-toggle-btn svg {
+  fill: #ffffff;
+  /* 暗色模式下的默认颜色 */
+}
+
+[data-theme="dark"] #theme-toggle-btn:hover svg {
+  fill: @dark-bg;
+  /* 暗色模式下 hover 时的颜色 */
+}
+.primary-button:hover {
+  background-color: @primary;
+}
+
+.primary-button .material-icons {
+  font-size: 20px;
+}
+

@@ -1,0 +1,91 @@
+
+/* 快捷键设置样式 */
+.shortcuts-settings-container {
+  margin-top: 1.5rem;
+}
+
+.shortcut-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.shortcut-item:hover {
+  background-color: #f8f9fa;
+  border-color: @primary;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.shortcut-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.shortcut-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1a202c;
+}
+
+.shortcut-value {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.shortcut-value-label {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.shortcut-value-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.shortcut-arrow {
+  color: #94a3b8;
+  font-size: 20px;
+  transition: transform 0.2s ease;
+}
+
+.shortcut-item:hover .shortcut-arrow {
+  transform: translateX(2px);
+  color: @primary;
+}
+
+/* 暗色模式适配 */
+[data-theme="dark"] .shortcut-item {
+  background-color: #1f2937;
+  border-color: #374151;
+}
+
+[data-theme="dark"] .shortcut-item:hover {
+  background-color: #2d3748;
+  border-color: @primary;
+}
+
+[data-theme="dark"] .shortcut-name {
+  color: @dark-text;
+}
+
+[data-theme="dark"] .shortcut-value {
+  color: @dark-muted;
+}
+
+[data-theme="dark"] .shortcut-arrow {
+  color: #64748b;
+}
+
+[data-theme="dark"] .shortcut-item:hover .shortcut-arrow {
+  color: @primary;
+}

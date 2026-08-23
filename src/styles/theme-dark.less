@@ -1,0 +1,233 @@
+
+
+
+/* 暗色模式样式 */
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* 暗黑模式下的背景渐变类 */
+[data-theme="dark"] html[class*="gradient-background"] {
+  background: transparent !important;
+}
+
+/* 暗黑模式下的背景样式优先级顺序 */
+[data-theme="dark"] body:not(.has-wallpaper) {
+  background-color: @dark-bg;
+}
+
+[data-theme="dark"] body:not(.has-wallpaper)[class*="gradient-background"] {
+  background-color: @dark-bg !important;
+}
+
+[data-theme="dark"] body.has-wallpaper {
+  background-color: transparent !important;
+  background-image: var(--wallpaper-image) !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  background-attachment: fixed !important;
+}
+
+/* 暗黑模式下的壁纸容器样式 */
+[data-theme="dark"] .wallpaper-option {
+  border: 2px solid @dark-surface-2;
+  background-color: @dark-surface;
+}
+
+[data-theme="dark"] body {
+  background-color: @dark-bg;
+}
+[data-theme="dark"] .bg-gray-50 text-center p-4 border-t border-gray-200 mt-4 {
+  background-color: transparent;
+}
+
+
+
+[data-theme="dark"] .custom-width {
+  background-color: @dark-bg;
+  border-color: @dark-surface-2;
+}
+
+[data-theme="dark"] #logo-title {
+  border-color: #ffffff;
+  color: #ffffff;
+}
+[data-theme="dark"] aside ul li {
+  color: #ffffff;
+}
+[data-theme="dark"] aside ul li:hover {
+  color: @dark-surface;
+}
+[data-theme="dark"] .bookmark-folder.card-title:hover {
+  color: #ffffff;
+}
+
+[data-theme="dark"] .bookmark-folder:hover {
+  background-color: #ffffff;
+  color: @dark-surface;
+}
+[data-theme="dark"] .bookmark-card,
+[data-theme="dark"] .bookmark-folder {
+  background-color: @dark-surface-2;
+  border-color: #ffffff;
+  color: #ffffff;
+}
+
+[data-theme="dark"] .bookmark-card:hover {
+  color: @dark-surface;
+}
+[data-theme="dark"] .card-title:hover {
+  color: @dark-surface;
+}
+
+/* 悬停效果由 CSS 提供（替代原先逐卡绑定的 mouseenter/mouseleave）；
+   background-color 需 !important 才能盖过 applyColors 写入的 inline background 渐变 */
+.bookmark-card.card:hover {
+  transform: scale(1.03);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.01);
+  background-color: rgba(255, 255, 255, 1) !important;
+}
+
+
+[data-theme="dark"] .search-input ,
+[data-theme="dark"] .search-form,
+[data-theme="dark"] .search-suggestions{
+  background-color: @dark-surface-2;
+  color: #ffffff;
+}
+[data-theme="dark"] .bookmarks-container {
+  background-color: @dark-surface;
+  color: #e0e0e0;
+}
+[data-theme="dark"]  .breadcrumb-item {
+  background-color: @dark-surface-2;
+  color: #ffffff;
+}
+[data-theme="dark"] .breadcrumb-item:last-child {
+  color: #ffffff;
+  background-color: @dark-surface;
+}
+[data-theme="dark"] #welcome-message {
+  color: #ffffff;
+}
+[data-theme="dark"] .custom-hr {
+  border-top: 1px solid #373737;
+}
+[data-theme="dark"] .search-suggestions-wrapper {
+  background-color: @dark-surface-2;
+}
+[data-theme="dark"] .search-suggestions li {
+  color: #ffffff;
+}
+[data-theme="dark"] .tab {
+  color: #ffffff;
+  background-color: #7a7a7a;
+}
+[data-theme="dark"] #tabs-container {
+  background-color: @dark-surface-2;
+}
+[data-theme="dark"] .search-suggestions li {
+  color: #ffffff;
+}
+[data-theme="dark"] .search-suggestions li:hover {
+  color: @dark-surface;
+}
+[data-theme="dark"] .suggestion-icon path {
+  fill: #e0e0e0;
+}
+[data-theme="dark"] li:hover .suggestion-icon path {
+  fill: @dark-surface;
+}
+[data-theme="dark"] .links-icons {
+  background-color: @dark-surface-2;
+}
+[data-theme="dark"] .links-icons a {
+  color: #ffffff;
+}
+[data-theme="dark"] .links-icons a:hover {
+  color: @dark-surface;
+}
+[data-theme="dark"] .settings-icon {
+  background-color: @dark-surface-2;
+}
+[data-theme="dark"] .settings-icon a {
+  color: #ffffff;
+}
+[data-theme="dark"] .settings-icon a:hover {
+  color: @dark-surface;
+}
+[data-theme="dark"] .quick-link-item {
+  background-color: @dark-surface-2;
+}
+[data-theme="dark"] #toggle-sidebar {
+  background-color: @dark-surface-2;
+  border-color: @dark-surface-2;
+}
+[data-theme="dark"] #toggle-sidebar:hover {
+  background-color: @dark-surface-2;
+  border-color: @dark-surface-2;
+  color: #ffffff;
+}
+[data-theme="dark"] .custom-context-menu {
+  background-color: @dark-surface-2;
+  border-color: @dark-surface-2;
+  color: #ffffff;
+}
+[data-theme="dark"] .custom-context-menu-divider {
+  background-color: #373737;
+}
+[data-theme="dark"] .custom-context-menu-item {
+  color: #ffffff;
+}
+[data-theme="dark"] .custom-context-menu-item:hover {
+  background-color: #ffffff;
+  color: @dark-surface;
+}
+[data-theme="dark"] #confirm-dialog p,
+#edit-dialog p,
+#edit-category-dialog p{
+  color: #ffffff;
+}
+[data-theme="dark"] #confirm-dialog .modal-content,
+[data-theme="dark"] #edit-dialog .modal-content,
+[data-theme="dark"] #edit-category-dialog .modal-content {
+  background-color: @dark-surface;
+  color: #ffffff;
+  border-color: @dark-surface;
+}
+[data-theme="dark"] #edit-dialog input[type="text"],
+[data-theme="dark"] #edit-dialog input[type="url"],
+[data-theme="dark"] #edit-category-dialog input[type="text"] {
+  background-color: @dark-surface-2;
+  color: #ffffff;
+  border-color: @dark-surface-2;
+}
+[data-theme="dark"] .close-button {
+  color: #ffffff;
+}
+[data-theme="dark"] .close-category-button {
+  color: #ffffff;
+}
+[data-theme="dark"] .close-button:hover {
+  color: #ffffff;
+}
+[data-theme="dark"] .close-category-button:hover {
+  color: #ffffff;
+}
+[data-theme="dark"] .settings-modal-content {
+  background-color: @dark-surface;
+  border-color: @dark-surface;
+  color: #ffffff;
+}
+[data-theme="dark"] .settings-modal-title {
+  color: #ffffff;
+}
+[data-theme="dark"] .settings-tab-button {
+  color: #ffffff;
+}
+[data-theme="dark"] .settings-modal-subtitle {
+  color: #ffffff;
+}
+
+

@@ -1261,7 +1261,7 @@ function createBookmarkCard(bookmark: BookmarkNode, index: number) {
   card.appendChild(content);
 
   // 右键菜单、点击与悬停均不逐卡绑定：contextmenu/click 走文档级事件委托
-  //（见 setupBookmarkCardDelegation），悬停效果由 styles.css 的
+  //（见 setupBookmarkCardDelegation），悬停效果由 src/styles/theme-dark.less 的
   // .bookmark-card.card:hover 提供
 
   return card;

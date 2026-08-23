@@ -1,0 +1,100 @@
+.default-folders-tabs {
+  position: absolute;
+  top: 50%;
+  left: calc((100% - min(var(--bookmark-container-width, 85%), 1200px)) / 2);
+  transform: translate(-100%, -50%);
+  padding: 0 12px 0 0;
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  z-index: 5;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  pointer-events: none;
+}
+
+.default-folders-tabs.show {
+  display: flex;
+}
+
+.tabs-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  pointer-events: auto;
+}
+
+.folder-tab {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.18),
+    0 1px 3px rgba(15, 23, 42, 0.28);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition:
+    height 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.28s ease,
+    box-shadow 0.28s ease;
+}
+
+.folder-tab::before {
+  content: '';
+  position: absolute;
+  inset: -7px -10px;
+}
+
+.folder-tab::after {
+  content: attr(data-name);
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%) translateX(4px);
+  padding: 5px 9px;
+  color: #f8fafc;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.18);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* 响应式布局调整 */
+@media (max-width: 1024px) {
+  .default-folders-tabs {
+    display: none !important;  /* 在小屏幕上隐藏 */
+  }
+}
+
+/* 暗色模式适配 */
+[data-theme="dark"] .folder-tab {
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme="dark"] .folder-tab:hover {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+[data-theme="dark"] .folder-tab.active {
+  background: #34d399;
+  box-shadow:
+    0 0 0 1px rgba(52, 211, 153, 0.35),
+    0 2px 10px rgba(16, 185, 129, 0.45);
+}

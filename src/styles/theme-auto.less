@@ -1,0 +1,50 @@
+/* 系统主题自动切换相关样式 */
+@media (prefers-color-scheme: dark) {
+  html[data-theme="auto"] {
+    background-color: @dark-bg;
+  }
+
+  html[data-theme="auto"] body {
+    background-color: @dark-bg;
+    color: #ffffff;
+  }
+
+  html[data-theme="auto"] .custom-width {
+    background-color: @dark-bg;
+    border-color: @dark-surface-2;
+  }
+
+  /* 继承现有的暗色模式样式 */
+  html[data-theme="auto"] .search-input,
+  html[data-theme="auto"] .search-form,
+  html[data-theme="auto"] .search-suggestions {
+    background-color: @dark-surface-2;
+    color: #ffffff;
+  }
+
+  html[data-theme="auto"] .bookmarks-container {
+    background-color: @dark-surface;
+    color: #e0e0e0;
+  }
+
+  /* 继承其他暗色模式样式 */
+  html[data-theme="auto"] [class*="dark-mode-style"] {
+    /* 应用对应的暗色模式样式 */
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  html[data-theme="auto"] {
+    background-color: #ffffff;
+  }
+
+  html[data-theme="auto"] body {
+    background-color: #ffffff;
+    color: #333333;
+  }
+
+  /* 继承其他亮色模式样式 */
+  html[data-theme="auto"] [class*="light-mode-style"] {
+    /* 应用对应的亮色模式样式 */
+  }
+}

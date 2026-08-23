@@ -1,0 +1,19 @@
+// MarkStart 页面样式主入口。
+// 由原 styles.css（2023 行）按功能域连续切分而来，import 顺序即原文件规则顺序，
+// 调整顺序前必须确认无同特异性覆盖关系（如 layout 与 settings-panel 中的
+// body,main transition 覆盖链）。Tailwind 产物 output.css 仍由 index.html 单独引入。
+@import "styles/variables.less";
+
+@import "styles/layout.less";              // 首屏门控、主容器、进度条、侧边栏与面包屑
+@import "styles/theme-dark.less";          // 暗色主题第一批（含书签卡 hover，见文件内注释）
+@import "styles/onboarding.less";          // 欢迎引导浮层与动画
+@import "styles/wallpaper.less";           // 壁纸选项网格与上传按钮
+@import "styles/settings-appearance.less"; // 外观设置：纯色背景/上传/字体声明/关于/主题按钮
+@import "styles/theme-auto.less";          // 跟随系统主题（prefers-color-scheme）
+@import "styles/settings-panel.less";      // 布局滑块、设置模态、搜索引擎对话框、浮动滑块卡
+@import "styles/global.less";              // 全局滚动条、主题下拉选择器
+@import "styles/folder-tabs.less";         // 固定目录标签点
+@import "styles/settings-sidebar.less";    // 设置侧栏框架、界面元素区（尾部含 folder-tab 补充规则）
+@import "styles/shortcuts.less";           // 快捷键设置项
+@import "styles/wallpaper-bing.less";      // 必应壁纸网格
+@import "styles/bookmarks-layout.less";    // 书签 swiper 容器与列表网格

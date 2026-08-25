@@ -39,6 +39,11 @@ export default defineConfig({
         { src: 'manifest.json', dest: '.' },
         { src: '_locales/**/*', dest: '.' },
         { src: 'images/**/*', dest: '.' },
+        {
+          src: 'src/startup-wallpaper.ts',
+          dest: 'src',
+          rename: { stripBase: true, name: 'startup-wallpaper.js' },
+        },
       ],
     }),
   ],

@@ -38,6 +38,8 @@ test('builds npm runtime dependencies into the extension page bundle', (context)
   const bundlePath = /<script type="module" crossorigin src="\/(assets\/[^\"]+\.js)">/.exec(indexHtml)?.[1]
   assert.ok(bundlePath)
   assert.equal(existsSync(resolve(outputDirectory, bundlePath)), true)
+  assert.match(indexHtml, /<body[^>]*>\s*<script\s+src="startup-wallpaper\.js"><\/script>/)
+  assert.equal(existsSync(resolve(outputDirectory, 'src/startup-wallpaper.js')), true)
   assert.doesNotMatch(indexHtml, /(?:lodash|Sortable|qrcode)\.min\.js/)
   const bundle = readFileSync(resolve(outputDirectory, bundlePath), 'utf8')
   assert.match(bundle, /QRCode/)

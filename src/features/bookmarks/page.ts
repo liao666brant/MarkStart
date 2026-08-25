@@ -1191,7 +1191,6 @@ function displayBookmarks(bookmark: BookmarkDisplay, _animate = true) {
   bookmarksList.appendChild(fragment);
   bookmarksList.dataset["parentId"] = bookmark.id;
   bookmarksList.scrollTop = 0;
-  bookmarksContainer.classList.add('loaded');
   bindBookmarkListSortable(bookmarksList);
   ensureScrollIndicator(bookmarksContainer, bookmarksList);
 }

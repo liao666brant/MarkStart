@@ -98,12 +98,7 @@ export class WallpaperManager {
 
     // 壁纸恢复只依赖 localStorage 与单次 IndexedDB 读取，与用户壁纸元数据加载并行执行
     private async bootstrap(): Promise<void> {
-        try {
-            await Promise.all([this.userWallpapersReady, this.initializeWallpaper()]);
-        } finally {
-            // 恢复成功与失败都必须解除首屏门控，避免页面挂死
-            document.documentElement.classList.remove('loading-wallpaper');
-        }
+        await Promise.all([this.userWallpapersReady, this.initializeWallpaper()]);
     }
 
     // 新增方法：初始化预设壁纸列表
@@ -346,6 +341,7 @@ export class WallpaperManager {
             } catch (error) {
                 console.warn('恢复壁纸失败，清除失效引用并回退默认背景:', error instanceof Error ? error : String(error));
                 localStorage.removeItem('originalWallpaper');
+                this.clearWallpaper();
                 this.applyDefaultBackground();
             }
         } else {

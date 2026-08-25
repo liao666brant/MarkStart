@@ -1,24 +1,11 @@
-/* 在文件顶部添加 */
-html.loading-wallpaper {
-  background: none !important;
-}
-
-html.loading-wallpaper body,
-html.loading-wallpaper main {
-  opacity: 0;
-  z-index: 2;
-}
-
 body,
 main {
   opacity: 1;
-  transition: opacity 0.3s ease-out;
   background-color: transparent !important;
 }
 
 /* 修改现有的背景渐变类，增加特异性 */
-html:not(.loading-wallpaper)[class*="gradient-background"] {
-  transition: background 0.3s ease-out;
+html[class*="gradient-background"] {
   z-index: 1;
 }
 

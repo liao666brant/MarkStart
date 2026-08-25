@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MarkStart",
-  "version": "1.248",
+  "version": "1.249",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqxk5BcUn1FrnEHS3J6sIdr8c0zpVZR4mSEqTEXzhJHMLblkHGoQpHaudmEfkZ8MApXGtd3PSIG3GC6slP9HyO7+SWYxGAAzwiSrY6ODqdyywsU4jQ2f3auivwQnvIoQNzkDjenbNEpHbJfDJypLcD5axJFi1pimAYuElYNoAaZV/LeNvgx8MwOfVjbR0+FJUwbYGYYgmsoH/mrPz6Y7u13OmpXJJcTAy8g/0QI7VjXeP3RaWj6JcsbviTHLm5paMaL8frCvtNd7oLVYDwbbIQD5BezIGRHbc3gh1rM7eZMde6BjUzEk7USmmysVwKjVkoGnLFuIt3mZuPK3R+FHPVwIDAQAB",
   "description": "__MSG_extDescription__",
   "default_locale": "en",

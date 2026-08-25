@@ -1,0 +1,7 @@
+interface:
+  display_name: "MarkStart 发版"
+  short_description: "按两次提交完成 MarkStart 发版、升级版本并推送当前分支"
+  default_prompt: "请使用 $release 执行本项目发版流程。"
+
+policy:
+  allow_implicit_invocation: false

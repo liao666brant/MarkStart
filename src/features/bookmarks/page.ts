@@ -14,6 +14,7 @@ import {
   getActiveFolderName,
   queryBookmarksList,
   type FolderSwiperHandle,
+  type PinnedFolderSlide,
 } from './folder-swiper';
 import { applySavedBackgroundColor } from '../wallpaper/background';
 import {
@@ -53,6 +54,11 @@ type BookmarkDisplay = {
   readonly id: string;
   readonly children?: readonly BookmarkNode[];
 };
+type FolderSlide = PinnedFolderSlide;
+type FolderSlideSelection = {
+  readonly slides: readonly FolderSlide[];
+  readonly temporary: FolderSlide | undefined;
+};
 declare global {
   interface Window {
     updateBookmarksDisplay(parentId: string, movedItemId?: string, newIndex?: number): Promise<void>;
@@ -81,6 +87,8 @@ let contextMenu: HTMLElement | null = null;
 let currentBookmark: CurrentBookmark | null = null;
 let folderSwiper: FolderSwiperHandle | null = null;
 let wheelSwitchingInitialized = false;
+let pinnedFolderSlides: readonly FolderSlide[] = [];
+let temporaryFolderSlide: FolderSlide | undefined;
 const folderNameUpdateVersions = new WeakMap<HTMLElement, number>();
 
 // 使用单一的状态变量
@@ -783,10 +791,54 @@ function ensureFolderSwiper(): FolderSwiperHandle {
   return folderSwiper;
 }
 
+function selectFolderSlide(
+  pinnedFolders: readonly FolderSlide[],
+  folder: FolderSlide,
+): FolderSlideSelection {
+  const temporary = pinnedFolders.some((pinnedFolder) => pinnedFolder.id === folder.id)
+    ? undefined
+    : folder;
+  return {
+    slides: temporary ? [...pinnedFolders, temporary] : pinnedFolders,
+    temporary,
+  };
+}
+
+function renderFolderTabs(): void {
+  const tabsContainer = document.querySelector<HTMLElement>('.tabs-container');
+  if (!tabsContainer) return;
+
+  tabsContainer.replaceChildren();
+  const folders = temporaryFolderSlide
+    ? [...pinnedFolderSlides, temporaryFolderSlide]
+    : pinnedFolderSlides;
+  for (const folder of folders) {
+    const tab = document.createElement('div');
+    tab.className = 'folder-tab';
+    tab.dataset["folderId"] = folder.id;
+    tab.dataset["name"] = folder.name;
+    tab.role = 'button';
+    tab.tabIndex = 0;
+    tab.ariaLabel = folder.name;
+    if (folder.id === temporaryFolderSlide?.id) tab.dataset["temporary"] = 'true';
+    const activate = () => {
+      void switchToFolder(folder.id);
+    };
+    tab.addEventListener('click', activate);
+    tab.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      activate();
+    });
+    tabsContainer.appendChild(tab);
+  }
+  updateDefaultFoldersTabsVisibility();
+}
+
 function onPinnedSlideChange(folderId: string): void {
-  // 惰性渲染：未渲染过的 slide 首次滑入时才拉取书签并构建卡片
+  // 惰性渲染：首次滑入或被未固定目录替换内容后，拉取书签并构建卡片
   const listForSlide = queryBookmarksList(folderId);
-  if (listForSlide && listForSlide.dataset["parentId"] === undefined) {
+  if (listForSlide && listForSlide.dataset["parentId"] !== folderId) {
     updateBookmarksDisplay(folderId).catch(error => {
       console.error('Error lazily rendering pinned slide:', error instanceof Error ? error : String(error));
     });
@@ -826,21 +878,17 @@ async function initDefaultFoldersTabs() {
   const defaultFolders = folders.sort((a, b) => a.order - b.order);
   const swiper = ensureFolderSwiper();
 
-  tabsContainer.innerHTML = '';
+  pinnedFolderSlides = defaultFolders.map((folder) => ({
+    id: folder.id,
+    name: folder.name,
+  }));
+  temporaryFolderSlide = undefined;
+  renderFolderTabs();
 
-  for (const folder of defaultFolders) {
-    const tab = document.createElement('div');
-    tab.className = 'folder-tab';
-    tab.dataset["folderId"] = folder.id;
-    tab.dataset["order"] = folder.order.toString();
-    tab.dataset["name"] = folder.name;
-    tab.addEventListener('click', () => switchToFolder(folder.id));
-    tabsContainer.appendChild(tab);
-  }
-
+  const bookmarksBarId = await getBookmarksBarId(chrome.bookmarks);
   chrome.bookmarks.getTree(function (nodes) {
     bookmarkTreeNodes = nodes;
-    displayBookmarkCategories(bookmarkTreeNodes[0]?.children ?? [], 0, null, '1');
+    displayBookmarkCategories(bookmarkTreeNodes[0]?.children ?? [], 0, null, bookmarksBarId);
   });
 
   if (defaultFolders.length > 0) {
@@ -849,10 +897,7 @@ async function initDefaultFoldersTabs() {
       ? lastViewedFolder
       : defaultFolders[0]?.id ?? await getBookmarksBarId(chrome.bookmarks);
 
-    swiper.rebuild(defaultFolders.map((folder) => ({
-      id: folder.id,
-      name: folder.name,
-    })), folderToActivate);
+    swiper.rebuild(pinnedFolderSlides, folderToActivate);
 
     // 只渲染激活的 slide，其余 slide 首次滑入时由 onPinnedSlideChange 惰性渲染
     await switchToFolder(folderToActivate);
@@ -894,8 +939,16 @@ function initWheelSwitching() {
 async function switchToFolder(folderId: string) {
   try {
     const results = await chrome.bookmarks.get(folderId);
-    if (!results || results.length === 0) {
+    const selectedFolder = results[0];
+    if (!selectedFolder) {
       throw new Error('Folder not found');
+    }
+
+    if (pinnedFolderSlides.length > 0) {
+      const selection = selectFolderSlide(pinnedFolderSlides, { id: folderId, name: selectedFolder.title });
+      temporaryFolderSlide = selection.temporary;
+      renderFolderTabs();
+      folderSwiper?.rebuild(selection.slides, folderId);
     }
 
     document.querySelectorAll<HTMLElement>('.folder-tab').forEach((tab) => {
@@ -908,7 +961,6 @@ async function switchToFolder(folderId: string) {
       updateFolderName(folderId),
       selectSidebarFolder(folderId),
     ]);
-    folderSwiper?.slideTo(folderId);
     await chrome.storage.local.set({
       lastViewedFolder: folderId,
       lastViewedTime: Date.now(),
@@ -2017,12 +2069,20 @@ function ensureSidebarClickDelegation(): void {
     });
     li.classList.add('bg-emerald-500');
 
-    updateBookmarksDisplay(folderId);
+    void switchToFolder(folderId);
   });
 }
 
 // 侧边栏单个文件夹条目：li 与（仅有子文件夹可展开时的）空 sublist 占位
-function createSidebarFolderItem(bookmark: BookmarkNode, level: number): { readonly li: HTMLLIElement; readonly sublist: HTMLUListElement | null } {
+function createSidebarFolderItem(
+  bookmark: BookmarkNode,
+  level: number,
+  expandedFolderId?: string,
+): {
+  readonly li: HTMLLIElement;
+  readonly sublist: HTMLUListElement | null;
+  readonly isInitiallyExpanded: boolean;
+} {
   const li = document.createElement('li');
   li.className = 'cursor-pointer p-2 hover:bg-emerald-500 rounded-lg flex items-center folder-item';
   li.style.paddingLeft = `${(level * 20) + 8}px`;
@@ -2039,29 +2099,36 @@ function createSidebarFolderItem(bookmark: BookmarkNode, level: number): { reado
   li.insertBefore(folderIcon, li.firstChild);
 
   const hasSubfolders = bookmark.children?.some((child: BookmarkNode) => child.children) ?? false;
+  const isInitiallyExpanded = bookmark.id === expandedFolderId;
   let sublist: HTMLUListElement | null = null;
   if (hasSubfolders) {
     const arrowIcon = document.createElement('span');
     arrowIcon.className = 'material-icons ml-auto';
-    arrowIcon.innerHTML = ICONS.chevron_right;
+    arrowIcon.innerHTML = isInitiallyExpanded ? ICONS.expand_less : ICONS.chevron_right;
     li.appendChild(arrowIcon);
 
     sublist = document.createElement('ul');
     sublist.className = 'pl-4 space-y-2';
-    sublist.style.display = 'none';
+    sublist.style.display = isInitiallyExpanded ? 'block' : 'none';
     sublist.dataset["built"] = '0';
   }
 
   li.appendChild(span);
-  return { li, sublist };
+  return { li, sublist, isInitiallyExpanded };
 }
 
-function appendSidebarFolderItems(container: HTMLElement, nodes: readonly BookmarkNode[], level: number): void {
+function appendSidebarFolderItems(
+  container: HTMLElement,
+  nodes: readonly BookmarkNode[],
+  level: number,
+  expandedFolderId?: string,
+): void {
   for (const bookmark of nodes) {
     if (!bookmark.children || bookmark.children.length === 0) continue;
-    const item = createSidebarFolderItem(bookmark, level);
+    const item = createSidebarFolderItem(bookmark, level, expandedFolderId);
     container.appendChild(item.li);
     if (item.sublist) container.appendChild(item.sublist);
+    if (item.sublist && item.isInitiallyExpanded) buildSubfolderItems(item.sublist, bookmark.id);
   }
 }
 
@@ -2088,7 +2155,7 @@ function displayBookmarkCategories(bookmarkNodes: BookmarkNode[], level: number,
   }
 
   // 只构建首层；深层级由首次展开时的懒构建补齐
-  appendSidebarFolderItems(categoriesList, bookmarkNodes, level);
+  appendSidebarFolderItems(categoriesList, bookmarkNodes, level, parentId);
 
   if (!parentUl) {
     ensureSidebarClickDelegation();

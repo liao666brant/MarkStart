@@ -1,5 +1,6 @@
 // allow: SIZE_OK — behavior-preserving migration of the legacy wallpaper controller; structural split is outside this task.
 import { decodeDataUrl, deleteWallpaperBlob, getWallpaperBlob, putWallpaperBlob } from './blob-store';
+import { parseWallpaperPreview, shouldUseStartupPreview, toWallpaperPreview, WALLPAPER_PREVIEW_KEY, WALLPAPER_PREVIEW_WIDTH } from './preview';
 import { blobIdFromStorageKey, isIdbStorageKey, toStorageKey } from './storage-keys';
 
 type WallpaperPreset = {
@@ -35,6 +36,9 @@ const BING_WALLPAPERS_CACHE_KEY = 'bingWallpapersCache';
 const BING_FETCH_FAILURE_KEY = 'bingWallpaperFetchFailedAt';
 const BING_FETCH_TIMEOUT_MS = 8000;
 const BING_FETCH_RETRY_INTERVAL_MS = 30 * 60 * 1000;
+
+// 首帧预览取回在线原图的超时，避免请求悬挂占住预览生成
+const WALLPAPER_PREVIEW_FETCH_TIMEOUT_MS = 8000;
 
 function localDateStamp(): string {
     const now = new Date();
@@ -264,6 +268,8 @@ export class WallpaperManager {
         // 清除壁纸
         this.clearWallpaper();
         localStorage.setItem('useDefaultBackground', 'true');
+        // 已切到纯色背景，首帧预览不再有意义
+        localStorage.removeItem(WALLPAPER_PREVIEW_KEY);
 
         // 更新欢迎消息颜色
         const welcomeElement = document.getElementById('welcome-message');
@@ -327,6 +333,9 @@ export class WallpaperManager {
         }
 
         if (savedWallpaper) {
+            // 首帧：先用上次壁纸的低清预览铺底，真实壁纸加载完成后覆盖同一批样式属性
+            this.applyCachedPreview(savedWallpaper);
+
             // 旧版把 dataURL 整串写进 localStorage，首次启动时迁移为 IndexedDB Blob 引用
             savedWallpaper = await this.migrateLegacyStoredWallpaper(savedWallpaper);
 
@@ -339,10 +348,17 @@ export class WallpaperManager {
                 await this.waitForImage(displayUrl);
                 await this.applyWallpaper(displayUrl);
             } catch (error) {
-                console.warn('恢复壁纸失败，清除失效引用并回退默认背景:', error instanceof Error ? error : String(error));
-                localStorage.removeItem('originalWallpaper');
+                console.warn('恢复壁纸失败:', error instanceof Error ? error : String(error));
+                // 引用指向的 Blob 已不存在时清掉引用自愈；远程图加载失败（离线等）保留引用，
+                // 下次启动重试，避免一次失败就把用户的壁纸偏好丢掉
+                if (isIdbStorageKey(savedWallpaper)) {
+                    const blob = await getWallpaperBlob(blobIdFromStorageKey(savedWallpaper));
+                    if (blob === null) {
+                        localStorage.removeItem('originalWallpaper');
+                    }
+                }
                 this.clearWallpaper();
-                this.applyDefaultBackground();
+                this.applyFallbackBackground();
             }
         } else {
             // 如果没有保存的壁纸和背景，使用默认背景
@@ -361,11 +377,20 @@ export class WallpaperManager {
         }
     }
 
+    // 恢复失败时的兜底绘制：只回退当前显示，不写 useDefaultBackground/selectedBackground，
+    // 否则下次启动会走"纯色背景"分支，把壁纸偏好永久变成默认背景
+    private applyFallbackBackground(): void {
+        document.documentElement.className = 'gradient-background-7';
+        document.querySelector('.settings-bg-option[data-bg="gradient-background-7"]')?.classList.add('active');
+    }
+
     // 重置壁纸
     private resetWallpaper(): void {
         // 清除所有选中状态
         this.clearAllActiveStates();
         this.clearWallpaper();
+        // 用户主动重置后不再保留首帧预览
+        localStorage.removeItem(WALLPAPER_PREVIEW_KEY);
 
         // 设置默认背景
         const defaultBgOption = document.querySelector('.settings-bg-option[data-bg="gradient-background-7"]');
@@ -413,6 +438,82 @@ export class WallpaperManager {
         });
     }
 
+    // 首帧预览：命中时先铺低清图；引用已变化或来源不需要预览时清掉无用数据
+    private applyCachedPreview(source: string): void {
+        const stored = localStorage.getItem(WALLPAPER_PREVIEW_KEY);
+        if (!stored) return;
+
+        const preview = parseWallpaperPreview(stored);
+        if (!preview || preview.source !== source || !shouldUseStartupPreview(source)) {
+            localStorage.removeItem(WALLPAPER_PREVIEW_KEY);
+            return;
+        }
+        void this.applyWallpaper(preview.dataUrl);
+    }
+
+    // 生成下次启动用的低清预览；不阻塞壁纸切换，失败只影响下次首帧
+    private async savePreview(source: string, displayUrl: string): Promise<void> {
+        if (!shouldUseStartupPreview(source)) return;
+
+        try {
+            const blob = await this.fetchPreviewBlob(source, displayUrl);
+            if (!blob) return;
+
+            // 期间可能已切换壁纸：来源不再匹配就丢弃，避免旧图覆盖新预览
+            if (localStorage.getItem('originalWallpaper') !== source) return;
+
+            const preview = toWallpaperPreview(source, await this.encodePreview(blob));
+            if (preview) {
+                localStorage.setItem(WALLPAPER_PREVIEW_KEY, JSON.stringify(preview));
+            }
+        } catch (error) {
+            console.warn('生成壁纸预览失败:', error instanceof Error ? error : String(error));
+        }
+    }
+
+    // 预览用原图：上传壁纸直接读 IndexedDB 的 Blob；跨域图无法直接进 canvas，
+    // 先用扩展的主机权限取回，并带超时避免请求悬挂
+    private async fetchPreviewBlob(source: string, displayUrl: string): Promise<Blob | null> {
+        if (source.startsWith('idb:')) {
+            return getWallpaperBlob(blobIdFromStorageKey(source));
+        }
+        if (!displayUrl.startsWith('http')) return null;
+
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), WALLPAPER_PREVIEW_FETCH_TIMEOUT_MS);
+        try {
+            const response = await fetch(displayUrl, { signal: controller.signal });
+            if (!response.ok) {
+                throw new Error(`壁纸预览取回失败: ${response.status}`);
+            }
+            return await response.blob();
+        } finally {
+            window.clearTimeout(timeoutId);
+        }
+    }
+
+    // 按目标宽度直接解码，避免为 4K 原图先分配整幅位图再缩放
+    private async encodePreview(blob: Blob): Promise<string> {
+        const bitmap = await createImageBitmap(blob, {
+            resizeWidth: WALLPAPER_PREVIEW_WIDTH,
+            resizeQuality: 'medium',
+        });
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = bitmap.width;
+            canvas.height = bitmap.height;
+
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                throw new DOMException('Canvas 2D context unavailable', 'InvalidStateError');
+            }
+            ctx.drawImage(bitmap, 0, 0);
+            return canvas.toDataURL('image/webp', 0.6);
+        } finally {
+            bitmap.close();
+        }
+    }
+
     // 设置新壁纸；返回是否成功，失败时由调用方保持原有背景状态
     private async setWallpaper(url: string | null): Promise<boolean> {
         if (!url) return false;
@@ -452,6 +553,7 @@ export class WallpaperManager {
 
         // 用户上传的壁纸从 IndexedDB 读取 Blob 显示；其余直接使用来源 URL
         await this.applyWallpaper(displayUrl);
+        void this.savePreview(source, displayUrl);
 
         await this.pruneReplacedWallpaper(previousReference, source);
     }

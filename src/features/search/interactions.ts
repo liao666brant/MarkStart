@@ -27,12 +27,6 @@ type OpenMultipleTabsResponse = {
 };
 type ElementConstructor<T extends Element> = new () => T;
 
-declare global {
-  interface Window {
-    lastSearchTrigger?: 'cmdCtrlEnter';
-  }
-}
-
 function requireElement<T extends Element>(
   element: Element | null,
   constructor: ElementConstructor<T>,
@@ -90,42 +84,7 @@ function getSuggestionSettings(): Promise<Record<string, unknown>> {
 
 export function initializeSearchInteractions(): void {
   const tabsContainer = requireElement(document.getElementById('tabs-container'), HTMLElement, '#tabs-container');
-  const tabs = document.querySelectorAll<HTMLElement>('.tab');
   const defaultSearchEngine = localStorage.getItem('selectedSearchEngine') || 'Google';
-
-  // 在文件的适当位置（可能在 DOMContentLoaded 事件监听器内）添加这个标志
-  let isChangingSearchEngine = false;
-
-  // 将 getSearchUrl 函数移到文件前面，在事件监听器之前定义
-
-
-
-
-  tabs.forEach(tab => {
-    tab.setAttribute('tabindex', '0');
-
-    tab.addEventListener('click', function () {
-        const selectedEngine = this.getAttribute('data-engine') ?? defaultSearchEngine;
-        const searchInput = document.querySelector<HTMLTextAreaElement>('.search-input');
-        if (!searchInput) return;
-        const searchQuery = searchInput.value.trim();
-
-        // 移除所有标签的激活状态
-        tabs.forEach(t => t.classList.remove('active'));
-        // 为当前点击的标签添加激活状态
-        this.classList.add('active');
-
-        // 如果搜索框有内容，立即执行搜索
-        if (searchQuery) {
-            const searchUrl = getSearchUrl(selectedEngine, searchQuery);
-            window.open(searchUrl, '_blank');
-            hideSuggestions();
-
-            // 使用 setTimeout 延迟恢复默认搜索引擎状态
-            setTimeout(restoreDefaultSearchEngine, 300);
-        }
-    });
-  });
 
   new Sortable(tabsContainer, {
     animation: 150,
@@ -135,19 +94,32 @@ export function initializeSearchInteractions(): void {
     }
   });
 
-  const savedOrderValue: unknown = JSON.parse(localStorage.getItem('orderedSearchEngines') ?? 'null');
-  if (Array.isArray(savedOrderValue) && savedOrderValue.every((value): value is string => typeof value === 'string')) {
-    const savedOrder = savedOrderValue;
-    savedOrder.forEach((engineName: string) => {
-      const tab = Array.from(tabs).find(tab => tab.getAttribute('data-engine') === engineName);
-      if (tab) {
-        tabsContainer.appendChild(tab);
-      }
-    });
-  }
-
   const searchForm = requireElement(document.getElementById('search-form'), HTMLElement, '#search-form');
   const searchInput = requireElement(document.querySelector('.search-input'), HTMLTextAreaElement, '.search-input');
+
+  // 标签栏在引擎开关/增删后被整栏重建：绑在单个标签上的点击监听重建即失效，
+  // 与 dropdown 内的同名绑定叠加时一次点击会打开两个标签页。这里统一改用容器级委托，
+  // 标签顺序的恢复由创建处（createTemporarySearchTabs）应用。
+  tabsContainer.addEventListener('click', (event) => {
+    const tab = event.target instanceof Element ? event.target.closest<HTMLElement>('.tab') : null;
+    if (!tab) return;
+
+    const selectedEngine = tab.dataset['engine'] ?? defaultSearchEngine;
+    const searchQuery = searchInput.value.trim();
+
+    // 移除所有标签的激活状态，为当前点击的标签添加激活状态
+    tabsContainer.querySelectorAll<HTMLElement>('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+
+    // 搜索框为空时只切换选中状态，不执行搜索
+    if (!searchQuery) return;
+
+    window.open(getSearchUrl(selectedEngine, searchQuery), '_blank');
+    hideSuggestions();
+
+    // 使用 setTimeout 延迟恢复默认搜索引擎状态
+    setTimeout(restoreDefaultSearchEngine, 300);
+  });
 
   // 建议查询递增 id：异步查询返回时若已过期则丢弃，防止慢查询晚返回覆盖新结果
   let suggestionQueryId = 0;
@@ -827,8 +799,6 @@ export function initializeSearchInteractions(): void {
 
   let allSuggestions: SearchSuggestion[] = [];
   let displayedSuggestions = 0;
-  const suggestionsPerLoad = 10; // 每次加载10个建议
-    void suggestionsPerLoad;
 
   let isScrollListenerAttached = false;
 
@@ -862,11 +832,9 @@ export function initializeSearchInteractions(): void {
     loadMoreSuggestions();
 
     if (!isScrollListenerAttached) {
-      searchSuggestions.addEventListener('scroll', throttledHandleScroll);
+      searchSuggestions.addEventListener('scroll', throttledHandleScroll, { passive: true });
       isScrollListenerAttached = true;
     }
-    setTimeout(() => {
-    }, 0);
   }
 
   function loadMoreSuggestions() {
@@ -933,19 +901,50 @@ export function initializeSearchInteractions(): void {
       ? suggestion.text.substring(0, maxTextLength) + '...'
       : suggestion.text;
 
-    li.innerHTML = `
-    ${suggestion.type === 'search' ? searchSvgIcon : '<span class="material-icons suggestion-icon"></span>'}
-    <div class="suggestion-content">
-      <span class="suggestion-text" title="${suggestion.text}">${truncatedText}</span>
-      ${displayUrl ? `<span class="suggestion-dash">-</span><span class="suggestion-url">${displayUrl}</span>` : ''}
-    </div>
-    <span class="suggestion-type">${suggestion.type}</span>
-  `;
+    // 建议文本与 URL 来自网页标题/书签标题，一律用 textContent 与属性赋值写入；
+    // 原实现把它们插进 innerHTML，含引号或尖括号的标题会破坏建议项结构
+    if (suggestion.type === 'search') {
+      li.insertAdjacentHTML('beforeend', searchSvgIcon); // 静态图标常量，不含外部数据
+    } else {
+      const icon = document.createElement('span');
+      icon.className = 'material-icons suggestion-icon';
+      li.appendChild(icon);
+    }
+
+    const content = document.createElement('div');
+    content.className = 'suggestion-content';
+
+    const textSpan = document.createElement('span');
+    textSpan.className = 'suggestion-text';
+    textSpan.title = suggestion.text;
+    textSpan.textContent = truncatedText;
+    content.appendChild(textSpan);
+
+    if (displayUrl) {
+      const dash = document.createElement('span');
+      dash.className = 'suggestion-dash';
+      dash.textContent = '-';
+      const urlSpan = document.createElement('span');
+      urlSpan.className = 'suggestion-url';
+      urlSpan.textContent = displayUrl;
+      content.append(dash, urlSpan);
+    }
+
+    const typeSpan = document.createElement('span');
+    typeSpan.className = 'suggestion-type';
+    typeSpan.textContent = suggestion.type;
+
+    li.append(content, typeSpan);
 
     if (suggestion.url && suggestion.type !== 'search') {
       getFavicon(suggestion.url, (faviconUrl: string) => {
         const iconSpan = li.querySelector<HTMLElement>('.suggestion-icon');
-        if (iconSpan) iconSpan.innerHTML = `<img src="${faviconUrl}" alt="" class="favicon">`;
+        if (!iconSpan) return;
+        const image = document.createElement('img');
+        image.src = faviconUrl;
+        image.alt = '';
+        image.className = 'favicon';
+        iconSpan.replaceChildren(image);
       });
     }
 
@@ -1170,9 +1169,6 @@ export function initializeSearchInteractions(): void {
 
 
   function hideSuggestions() {
-    if (isChangingSearchEngine) {
-      return; // 如果正在切换搜索引擎，不隐藏建议列表
-    }
     const searchForm = requireElement(document.querySelector('.search-form'), HTMLElement, '.search-form');
     searchForm.classList.remove('focused-with-suggestions');
 
@@ -1226,8 +1222,6 @@ export function initializeSearchInteractions(): void {
       .map(engine => getSearchUrl(engine.name, query));
 
     if (urls.length > 0) {
-      window.lastSearchTrigger = 'cmdCtrlEnter';
-
       chrome.runtime.sendMessage({
         action: 'openMultipleTabsAndGroup',
         urls: urls,

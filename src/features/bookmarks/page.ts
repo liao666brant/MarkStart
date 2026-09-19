@@ -109,8 +109,6 @@ function openEditDialog(bookmark: CurrentBookmark) {
   const editUrlInput = requireElement(document.getElementById('edit-url'), HTMLInputElement, '#edit-url');
   const editDialog = requireElement(document.getElementById('edit-dialog'), HTMLElement, '#edit-dialog');
   const editForm = requireElement(document.getElementById('edit-form'), HTMLFormElement, '#edit-form');
-  const cancelButton = requireElement(document.querySelector('.cancel-button'), HTMLElement, '.cancel-button');
-  const closeButton = requireElement(document.querySelector('.close-button'), HTMLElement, '.close-button');
 
   editNameInput.value = bookmarkTitle;
   editUrlInput.value = bookmarkUrl;
@@ -134,16 +132,6 @@ function openEditDialog(bookmark: CurrentBookmark) {
       updateBookmarkCard(bookmarkId, newTitle, newUrl, { getColors, applyColors });
     });
   };
-
-  // 添加取消按钮的事件监听
-  cancelButton.addEventListener('click', function () {
-    editDialog.style.display = 'none';
-  });
-
-  // 添加关闭按钮的事件监听
-  closeButton.addEventListener('click', function () {
-    editDialog.style.display = 'none';
-  });
 }
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -585,6 +573,8 @@ const bookmarksCache = createBookmarkCache<BookmarkNode>();
 
 async function updateBookmarkCards() {
   const bookmarksList = requireElement(getActiveBookmarksList(), HTMLElement, '#bookmarks-list');
+  // 旧版本写入的默认书签偏好：写入路径已不在（默认书签星标指示器同时移除），
+  // 但存量配置里仍可能残留，继续按它决定启动目录与侧边栏选中态
   const defaultBookmarkId = localStorage.getItem('defaultBookmarkId');
   let parentId = defaultBookmarkId || bookmarksList.dataset["parentId"];
 
@@ -602,9 +592,9 @@ async function updateBookmarkCards() {
 
   displayBookmarks({ id: parentId, children: bookmarks });
 
-  // 在显示书签后更新默认书签指示器
-  updateDefaultBookmarkIndicator();
-  updateSidebarDefaultBookmarkIndicator();
+  if (defaultBookmarkId) {
+    selectSidebarFolder(defaultBookmarkId);
+  }
 
   // 更新 bookmarks-list 的 data-parent-id
   bookmarksList.dataset["parentId"] = parentId;
@@ -638,9 +628,6 @@ document.addEventListener('DOMContentLoaded', function () {
   function updateSearchEngineIcon(engineName: string) {
     setSearchEngineIcon(engineName);
   }
-
-  // 更新侧边栏默认书签指示器和选中状态
-  updateSidebarDefaultBookmarkIndicator();
 
   // ... 其他代码 ...
 
@@ -698,7 +685,6 @@ function showErrorFeedback(element: HTMLElement) {
 }
 
 
-// 移除所有 defaultBookmarkId 相关的代码
 // 修改 waitForFirstCategory 函数
 async function waitForFirstCategory(attemptsLeft = 5) {
   try {
@@ -1672,48 +1658,40 @@ function deleteBookmark(bookmarkId: string, _bookmarkTitle: string) {
     return;
   }
 
-  // 先从界面上移除书签卡片
   const bookmarkCard = document.querySelector<HTMLElement>(`.bookmark-card[data-id="${bookmarkId}"]`);
-  if (bookmarkCard) {
-    // 添加淡出动画
-    bookmarkCard.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-    bookmarkCard.style.opacity = '0';
-    bookmarkCard.style.transform = 'scale(0.95)';
 
-    // 等待动画完成后移除元素
-    setTimeout(() => {
-      bookmarkCard.remove();
-    }, 300);
-  }
-
-  // 然后调用 Chrome API 删除书签
+  // 先等 Chrome API 结果再动界面：此前先移除卡片，删除失败时卡片已经脱离 DOM，
+  // 恢复分支失效，界面会一直缺这一张直到手动刷新
   chrome.bookmarks.remove(bookmarkId, function() {
     if (chrome.runtime.lastError) {
       console.error('Error deleting bookmark:', chrome.runtime.lastError);
       Utilities.showToast(getLocalizedMessage('deleteBookmarkError'));
+      return;
+    }
 
-      // 如果删除失败，恢复书签卡片
-      if (bookmarkCard && bookmarkCard.parentNode) {
-        bookmarkCard.style.opacity = '1';
-        bookmarkCard.style.transform = 'scale(1)';
-      }
-    } else {
-      // 保留成功删除的日志，但简化
-      Utilities.showToast(getLocalizedMessage('deleteSuccess'));
+    Utilities.showToast(getLocalizedMessage('deleteSuccess'));
 
-      // 只清除受影响父目录的缓存，避免全量失效后所有文件夹重新 IPC
-      const activeParentId = getActiveBookmarksList()?.dataset["parentId"];
-      if (activeParentId) {
-        bookmarksCache.delete(activeParentId);
+    if (bookmarkCard) {
+      // 删除成功后播放淡出动画再移除元素
+      bookmarkCard.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+      bookmarkCard.style.opacity = '0';
+      bookmarkCard.style.transform = 'scale(0.95)';
+      setTimeout(() => {
+        bookmarkCard.remove();
+      }, 300);
+    }
 
-        // 不需要完全刷新，因为我们已经从界面上移除了书签卡片
-        // 但我们需要更新缓存和排序
-        chrome.bookmarks.getChildren(activeParentId, (bookmarks) => {
-          if (!chrome.runtime.lastError) {
-            bookmarkOrderCache[activeParentId] = bookmarks.map(b => b.id);
-          }
-        });
-      }
+    // 只清除受影响父目录的缓存，避免全量失效后所有文件夹重新 IPC
+    const activeParentId = getActiveBookmarksList()?.dataset["parentId"];
+    if (activeParentId) {
+      bookmarksCache.delete(activeParentId);
+
+      // 删除已成功（卡片正在淡出，300ms 后移除），这里同步缓存与顺序信息
+      chrome.bookmarks.getChildren(activeParentId, (bookmarks) => {
+        if (!chrome.runtime.lastError) {
+          bookmarkOrderCache[activeParentId] = bookmarks.map(b => b.id);
+        }
+      });
     }
   });
 }
@@ -2457,26 +2435,6 @@ function updateCategoryUI(folderId: string, newTitle: string) {
 
 
 
-function updateSidebarDefaultBookmarkIndicator() {
-  const defaultBookmarkId = localStorage.getItem('defaultBookmarkId');
-  if (defaultBookmarkId !== null) selectSidebarFolder(defaultBookmarkId);
-
-  const allCategories = document.querySelectorAll<HTMLElement>('#categories-list li');
-  allCategories.forEach(category => {
-    const indicator = category.querySelector<HTMLElement>('.default-indicator');
-    if (indicator) {
-      indicator.remove();
-    }
-    if (category.dataset["id"] === defaultBookmarkId) {
-      const defaultIndicator = document.createElement('span');
-      defaultIndicator.className = 'default-indicator material-icons';
-      defaultIndicator.textContent = 'star';
-      defaultIndicator.title = getLocalizedMessage('homepage');
-      category.appendChild(defaultIndicator);
-    }
-  });
-}
-
 // 添加局变量来存储本地缓存
 let bookmarkOrderCache: Record<string, string[]> = {};
 
@@ -2559,24 +2517,6 @@ function setupSpecialLinks() {
         }, 1000);
       }
     });
-  });
-}
-
-function updateDefaultBookmarkIndicator() {
-  const defaultBookmarkId = localStorage.getItem('defaultBookmarkId');
-  const allBookmarks = document.querySelectorAll<HTMLElement>('.bookmark-card, .bookmark-folder');
-  allBookmarks.forEach(bookmark => {
-    const indicator = bookmark.querySelector<HTMLElement>('.default-indicator');
-    if (indicator) {
-      indicator.remove();
-    }
-    if (bookmark.dataset["id"] === defaultBookmarkId) {
-      const defaultIndicator = document.createElement('span');
-      defaultIndicator.className = 'default-indicator material-icons';
-      defaultIndicator.textContent = 'star';
-      defaultIndicator.title = getLocalizedMessage('homepage');
-      bookmark.appendChild(defaultIndicator);
-    }
   });
 }
 
@@ -2700,9 +2640,13 @@ document.addEventListener('DOMContentLoaded', function () {
     editDialog.style.display = 'none';
   };
 
+  // 两个对话框的点背景关闭合并为一个处理器：同一作用域里第二次 window.onclick 赋值会
+  // 覆盖第一次，原先编辑书签对话框点背景不会关闭
   window.onclick = function (event) {
     if (event.target == editDialog) {
       editDialog.style.display = 'none';
+    } else if (event.target == editCategoryDialog) {
+      editCategoryDialog.style.display = 'none';
     }
   };
 
@@ -2993,14 +2937,6 @@ document.addEventListener('DOMContentLoaded', function () {
     editCategoryDialog.style.display = 'none';
   };
 
-  window.onclick = function (event) {
-    if (event.target == editCategoryDialog) {
-      editCategoryDialog.style.display = 'none';
-    }
-  };
-
-
-
   initializeSearchInteractions();
 });
 
@@ -3201,10 +3137,17 @@ function updateDefaultFoldersTabsVisibility() {
 document.addEventListener('defaultFoldersChanged', updateDefaultFoldersTabsVisibility);
 
 // 添加滚动指示器功能
-function ensureScrollIndicator(bookmarksContainer: HTMLElement, bookmarksList: HTMLElement): void {
-  if (bookmarksContainer.querySelector('.scroll-indicator')) return;
+// 每个容器一份绑定：列表被 swiper rebuild 替换后由 isConnected 自检释放监听与观察器；
+// 仍在场上的容器（例如滑回已渲染的固定目录）必须保留原绑定，否则旧列表失去观察器，
+// 显隐不再更新，且容器里已有指示器时不能重复创建
+type ScrollIndicatorBinding = {
+  check: () => void;
+  release: () => void;
+};
 
-  // 创建滚动指示器
+const scrollIndicatorBindings = new Map<HTMLElement, ScrollIndicatorBinding>();
+
+function createScrollIndicatorElement(): HTMLElement {
   const scrollIndicator = document.createElement('div');
   scrollIndicator.className = 'scroll-indicator';
   scrollIndicator.innerHTML = `
@@ -3213,7 +3156,16 @@ function ensureScrollIndicator(bookmarksContainer: HTMLElement, bookmarksList: H
       <polyline points="7 6 12 11 17 6"></polyline>
     </svg>
   `;
-  bookmarksContainer.appendChild(scrollIndicator);
+  return scrollIndicator;
+}
+
+function bindScrollIndicator(bookmarksContainer: HTMLElement, bookmarksList: HTMLElement): ScrollIndicatorBinding {
+  // 复用容器里已有的指示器，避免重建绑定时出现两个
+  const existingIndicator = bookmarksContainer.querySelector<HTMLElement>('.scroll-indicator');
+  const scrollIndicator = existingIndicator ?? createScrollIndicatorElement();
+  if (!existingIndicator) {
+    bookmarksContainer.appendChild(scrollIndicator);
+  }
 
   // 滚动状态变量
   let scrollTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -3282,7 +3234,7 @@ function ensureScrollIndicator(bookmarksContainer: HTMLElement, bookmarksList: H
   });
 
   // 初始检查和窗口大小变化时重新检查；列表被 swiper rebuild 替换后
-  // 通过 isConnected 自检释放全局监听与观察器，避免旧 slide 整树无法回收
+  // 通过 isConnected 自检释放监听与观察器，避免旧 slide 整树无法回收
   let released = false;
 
   const release = (): void => {
@@ -3348,5 +3300,23 @@ function ensureScrollIndicator(bookmarksContainer: HTMLElement, bookmarksList: H
     }, 1500);
   });
 
-  // 初始检查和窗口大小变化时重新检查
+  return { check: guardedCheckScrollable, release };
+}
+
+function ensureScrollIndicator(bookmarksContainer: HTMLElement, bookmarksList: HTMLElement): void {
+  // 清理已离场的容器：swiper rebuild 换掉的旧 slide 不再回收监听与观察器
+  for (const [container, binding] of scrollIndicatorBindings) {
+    if (container.isConnected) continue;
+    binding.release();
+    scrollIndicatorBindings.delete(container);
+  }
+
+  const existingBinding = scrollIndicatorBindings.get(bookmarksContainer);
+  if (existingBinding) {
+    // 容器与列表都还在场：监听与观察器仍然有效，只需按当前尺寸重算一次显隐
+    existingBinding.check();
+    return;
+  }
+
+  scrollIndicatorBindings.set(bookmarksContainer, bindScrollIndicator(bookmarksContainer, bookmarksList));
 }

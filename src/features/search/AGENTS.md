@@ -15,7 +15,7 @@
 
 - Chrome `storage`、`tabs` API，页面搜索 DOM 与本地化函数。
 - 自定义搜索引擎使用 localStorage；URL 模板以 `%s` 作为查询占位。
-- 性能契约：搜索框只绑一个 focus/blur 处理器（`.focused` 切换 + 建议查询合一），不要重复绑定；建议设置（`showHistorySuggestions` 等）走模块级缓存 + `storage.onChanged` 失效；输入链路用递增 `suggestionQueryId` 丢弃过期查询，新增异步查询必须接入；`getRecentHistory` 有 60 秒 TTL 内存缓存；`createDropdownUI` 复用容器，iconContainer/document 监听只绑一次。
+- 性能契约：搜索框只绑一个 focus/blur 处理器（`.focused` 切换 + 建议查询合一），不要重复绑定；建议设置（`showHistorySuggestions` 等）走模块级缓存 + `storage.onChanged` 失效；输入链路用递增 `suggestionQueryId` 丢弃过期查询，新增异步查询必须接入；`getRecentHistory` 有 60 秒 TTL 内存缓存；`createDropdownUI` 复用容器，iconContainer/document 监听只绑一次；跨引擎临时搜索的标签点击只走 `interactions.ts` 的容器级委托（标签在创建时已按序恢复），不要给单个标签再加点击处理器，否则一次点击会开两个标签。
 
 ## 测试与质量
 
@@ -34,6 +34,7 @@
 
 ## 变更记录
 
+- 2026-09-19：补记临时搜索标签的点击委托契约（仅容器级委托，标签顺序在创建时恢复）。
 - 2026-09-06：搜索建议 favicon URL 收敛到 `shared/favicon.ts`（`size=64`，移除无效的 `cache` 参数）。
 - 2026-08-23（三轮）：行为表（userSearchBehavior）内存缓存 + 防抖落盘 + onChanged 失效 + pagehide 兜底刷新（相关性计算不再逐键读 storage）；引擎开关重建改 300ms 防抖合并。
 - 2026-08-23：性能整改——focus/Sortable 去重、设置缓存、过期查询丢弃、去重 Map 化、Levenshtein 剪枝、favicon cache=1、下拉监听器不再累积、文本图标改 data URL、远程图标 Promise.any。

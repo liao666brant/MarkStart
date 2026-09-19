@@ -20,7 +20,7 @@
 - Chrome `bookmarks`、`storage`、`history`、`tabs` API；`sortablejs`、`radashi` 和 `swiper`。
 - `default-folders.ts` 只读写 `chrome.storage.local.defaultFolders`；不要改回 `storage.sync`。
 - `page.ts` 依赖真实页面 DOM、`window` 全局契约及模块加载顺序，避免在未做页面验收时移动其初始化逻辑。
-- 启动性能契约：固定目录 slide 只渲染激活页，其余在首次滑入时由 `onPinnedSlideChange` 惰性渲染；书签/文件夹右键菜单均为首次右键时惰性创建；`ensureScrollIndicator` 的全局监听在列表脱离 DOM 后自释放，修改 rebuild 流程时不要破坏该回收路径。
+- 启动性能契约：固定目录 slide 只渲染激活页，其余在首次滑入时由 `onPinnedSlideChange` 惰性渲染；书签/文件夹右键菜单均为首次右键时惰性创建；`ensureScrollIndicator` 按容器保存一份滚动指示器绑定（`scrollIndicatorBindings`），新建绑定时清理已离场容器的监听与观察器，滑回已渲染的固定目录复用原绑定并重算显隐；不要退回“容器里有指示器就提前返回”，否则该目录的显隐不再更新。
 - 事件契约：书签卡的 click/contextmenu 走 document 级委托（`setupBookmarkCardDelegation`），卡片元素必须携带 `data-id`/`data-url`（card-update 编辑后同步刷新）；侧边栏树只构建首层，子层级在首次展开时从 `bookmarkTreeNodes` 懒构建（`buildSubfolderItems`）并按需绑定嵌套 Sortable；`displayBookmarks` 在子项 id/URL/标题序列与 DOM 一致时跳过重建，外部改名依赖该比对刷新视图。
 
 ## 测试与质量
@@ -41,6 +41,7 @@
 
 ## 变更记录
 
+- 2026-09-19：滚动指示器改为按容器绑定与清理（修复切走再切回后显隐不更新）；保留旧版 localStorage 键 `defaultBookmarkId`（已无写入路径）对启动目录与侧边栏选中态的影响；默认书签星标指示器按既定优化移除，不再恢复。
 - 2026-09-06：书签卡 favicon URL 收敛到 `shared/favicon.ts`（`size=64`）。
 - 2026-08-23（二轮）：书签卡点击/右键改文档级委托（卡片零监听，dataset 携带 url）、侧边栏点击委托 + 子层级懒构建 + Sortable 按需绑定、displayBookmarks 序列一致跳过重建、删除 ColorCache v2 双轨（文件夹卡用恒定默认色）、懒渲染 promise 补 catch。
 - 2026-08-23：性能整改——启动只渲染激活 slide（其余滑入惰性渲染）、书签事件合流（quietPeriodMs=100）+ 浅比较替代 JSON.stringify、颜色缓存内存层（card-colors.ts）、右键菜单与侧边栏计数惰性化、scroll indicator 观察器自释放、hover 改 CSS。

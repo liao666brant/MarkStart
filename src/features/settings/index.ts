@@ -499,19 +499,6 @@ class SettingsManager {
     });
   }
 
-  // 添加 debounce 方法来优化性能
-  debounce(func: () => void, wait: number): () => void {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    return function executedFunction(): void {
-      const later = () => {
-        if (timeout !== undefined) clearTimeout(timeout);
-        func();
-      };
-      if (timeout !== undefined) clearTimeout(timeout);
-      timeout = setTimeout(later, wait);
-    };
-  }
-
   initBookmarkWidthSettings(stored: StoredSettings): void {
     // 获取元素引用
     this.widthSlider = getInput('width-slider');
@@ -546,12 +533,12 @@ class SettingsManager {
     });
 
     // 添加窗口大小改变的监听：侧栏未打开时无需刷新预览
-    const debouncedUpdate = this.debounce(() => {
+    const debouncedUpdate = debounce({ delay: 250 }, () => {
       if (!this.settingsSidebar || !this.settingsSidebar.classList.contains('open')) {
         return;
       }
       this.updatePreviewCount(slider.value);
-    }, 250);
+    });
     window.addEventListener('resize', debouncedUpdate);
   }
 
@@ -673,12 +660,12 @@ class SettingsManager {
     valueElement.textContent = String(savedWidth);
     this.updateContainerWidth(savedWidth);
 
-    // 监听滑块的变化
-    slider.addEventListener('input', () => {
+    // 监听滑块的变化：与宽度/高度滑块一致，用 rAF 合帧，一帧最多写一次宽度
+    slider.addEventListener('input', coalesceInputFrame(() => {
       const width = slider.value;
       valueElement.textContent = width;
       this.updateContainerWidth(width);
-    });
+    }));
 
     // 监听滑块的鼠标释放事件，保存设置
     slider.addEventListener('mouseup', () => {

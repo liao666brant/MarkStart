@@ -41,7 +41,8 @@ document.addEventListener('DOMContentLoaded', function () {
           console.error('Error saving updated shortcut:', chrome.runtime.lastError);
         } else {
           refreshQuickLink(updatedSite, oldUrl);
-          setTimeout(() => generateQuickLinks(), 0);
+          // 缓存持有的是本页加载时的快照，先失效再重算，避免覆盖刚保存的修改
+          setTimeout(() => regenerateQuickLinks(), 0);
         }
       });
     });
@@ -65,8 +66,9 @@ document.addEventListener('DOMContentLoaded', function () {
     // 如果没有有效缓存，则正常加载
     const fixedShortcuts = await getFixedShortcuts();
 
-    // 仅首次启动时把搜索引擎域名种子写入黑名单；已写入则跳过整段循环
-    if (localStorage.getItem('blacklistSeededV1') !== '1') {
+    // 种子写入只需一次；V2 修正了扩展自身域名：快捷链接按 hostname 比对，
+    // chrome-extension URL 的 hostname 就是扩展 ID，原先写死的完整 URL 与 ID 都不会命中
+    if (localStorage.getItem('blacklistSeededV2') !== '1') {
       const blacklist = await getBlacklist();
 
       // 添加搜索引擎域名到黑名单
@@ -82,7 +84,7 @@ document.addEventListener('DOMContentLoaded', function () {
         'www.sogou.com',
         'www.so.com',
         'www.360.cn',
-        'chrome-extension://amkgcblhdallfcijnbmjahooalabjaao'  // 添加扩展自身的URL
+        chrome.runtime.id,  // 扩展自身的 URL：快捷链接按 hostname 比对，chrome-extension 的 hostname 就是扩展 ID
       ];
 
       // 将搜索引擎域名添加到黑名单
@@ -91,7 +93,7 @@ document.addEventListener('DOMContentLoaded', function () {
           await addToBlacklist(domain);
         }
       }
-      localStorage.setItem('blacklistSeededV1', '1');
+      localStorage.setItem('blacklistSeededV2', '1');
     }
 
     // 获取（含种子域名的）黑名单
@@ -116,7 +118,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
       renderQuickLinks(allShortcuts, showContextMenu);
 
+      // 冷启动路径此前不写缓存，导致 5 分钟 TTL 缓存永远无效，
+      // 每次打开新标签页都要重新检索 1000 条历史
+      quickLinksCache.set(allShortcuts);
     });
+  }
+
+  // 数据变更后重新生成：先失效缓存，再从 Chrome 数据重建
+  function regenerateQuickLinks(): void {
+    quickLinksCache.invalidate();
+    void generateQuickLinks();
   }
 
   // 3. 添加后台更新缓存的函数
@@ -197,7 +208,7 @@ document.addEventListener('DOMContentLoaded', function () {
     showQuickLinkDeleteDialog(site, {
       addToBlacklist,
       removeFixedShortcut,
-      generateQuickLinks,
+      generateQuickLinks: regenerateQuickLinks,
       showToast: showQuickLinkToast,
     });
   }

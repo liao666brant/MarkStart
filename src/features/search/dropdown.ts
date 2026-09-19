@@ -169,13 +169,21 @@ function createSearchEngineOption(engine: SearchEngine | null, isAddButton = fal
       showSearchEnginesDialog(); // 使用新的显示对话框函数
     });
   } else if (engine) {
-    // 创建常规搜索引擎选项
-    option.innerHTML = `
-      <div class="search-engine-option-content">
-        <img src="${engine.icon}" alt="${getLocalizedMessage(engine.label)}" class="search-engine-option-icon">
-        <span class="search-engine-option-label">${getLocalizedMessage(engine.label)}</span>
-      </div>
-    `;
+    // 创建常规搜索引擎选项；icon 与 label 可能来自用户自定义引擎，用 DOM API 赋值避免标记注入
+    const content = document.createElement('div');
+    content.className = 'search-engine-option-content';
+
+    const icon = document.createElement('img');
+    icon.className = 'search-engine-option-icon';
+    icon.src = engine.icon;
+    icon.alt = getLocalizedMessage(engine.label);
+
+    const label = document.createElement('span');
+    label.className = 'search-engine-option-label';
+    label.textContent = getLocalizedMessage(engine.label);
+
+    content.append(icon, label);
+    option.appendChild(content);
     option.onclick = () => handleSearchEngineSelection(engine);
   }
 
@@ -203,11 +211,6 @@ function handleSearchEngineSelection(engine: SearchEngine): void {
     updateTabsState(engine.name);
 
     // 立即更新搜索表单中的默认搜索引擎
-    const searchForm = document.querySelector('.search-form');
-    if (searchForm) {
-      searchForm.setAttribute('data-current-engine', engine.name);
-    }
-
     // 触发自定义事件
     const event = new CustomEvent<{ readonly engine: SearchEngine }>('defaultSearchEngineChanged', {
       detail: { engine }
@@ -271,15 +274,6 @@ function initializeSearchEngineUI(): void {
       // 更新标签栏状态
       updateTabsState(defaultEngine.name);
       
-      // 更新搜索表单中的默认搜索引擎
-      searchForm.setAttribute('data-current-engine', defaultEngine.name);
-      
-      // 确保图标正确加载
-      if (searchEngineIcon.src !== defaultEngine.icon) {
-        searchEngineIcon.src = defaultEngine.icon;
-        searchEngineIcon.alt = `${getLocalizedMessage(defaultEngine.label)} Search`;
-      }
-      
       console.log('[Search] UI successfully updated for engine:', defaultEngine.name);
     } else {
       console.error('[Search] Required DOM elements not found');
@@ -312,7 +306,8 @@ function getSearchUrl(engine: string, query: string): string {
   return url;
 }
 
-// 修改 createTemporarySearchTabs 函数中的点击事件处理
+// 标签栏在引擎开关/增删后整栏重建；点击行为由 interactions 的容器级委托统一处理，
+// 这里只负责创建标签并恢复用户拖拽保存的顺序
 function createTemporarySearchTabs(): void {
   const tabsContainer = document.querySelector<HTMLElement>('#tabs-container');
   if (!tabsContainer) return;
@@ -333,6 +328,7 @@ function createTemporarySearchTabs(): void {
     const tab = document.createElement('div');
     tab.className = 'tab';
     tab.setAttribute('data-engine', engine.name);
+    tab.setAttribute('tabindex', '0');
     
     if (engine.name === defaultEngine.name) {
       tab.classList.add('active');
@@ -345,42 +341,27 @@ function createTemporarySearchTabs(): void {
       tab.textContent = engine.name;
     }
 
-    tab.addEventListener('click', function() {
-      const searchInput = document.querySelector<HTMLTextAreaElement>('.search-input');
-      if (!searchInput) return;
-      const searchQuery = searchInput.value.trim();
-      
-      if (searchQuery) {
-        // 移除所有标签的激活状态
-        tabsContainer.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        // 为当前点击的标签添加激活状态
-        this.classList.add('active');
-
-        // 执行搜索
-        const searchUrl = getSearchUrl(engine.name, searchQuery);
-        window.open(searchUrl, '_blank');
-        
-        // 隐藏搜索建议
-        const searchSuggestions = document.querySelector<HTMLElement>('.search-suggestions-wrapper');
-        if (searchSuggestions) {
-          searchSuggestions.style.display = 'none';
-        }
-        
-        // 延迟恢复默认搜索引擎状态
-        setTimeout(() => {
-          const defaultEngine = SearchEngineManager.getDefaultEngine();
-          tabsContainer.querySelectorAll('.tab').forEach(t => {
-            if (t.getAttribute('data-engine') === defaultEngine.name) {
-              t.classList.add('active');
-            } else {
-              t.classList.remove('active');
-            }
-          });
-        }, 300);
-      }
-    });
-
     tabsContainer.appendChild(tab);
+  });
+
+  applySavedTabOrder(tabsContainer);
+}
+
+// 应用拖拽保存的引擎顺序：未出现在保存列表里的引擎保持创建顺序排在后面
+function applySavedTabOrder(tabsContainer: HTMLElement): void {
+  let savedOrder: unknown = null;
+  try {
+    savedOrder = JSON.parse(localStorage.getItem('orderedSearchEngines') ?? 'null');
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+  }
+  if (!Array.isArray(savedOrder)) return;
+
+  savedOrder.forEach((engineName: unknown) => {
+    if (typeof engineName !== 'string') return;
+    const tab = [...tabsContainer.querySelectorAll<HTMLElement>('.tab')]
+      .find(candidate => candidate.getAttribute('data-engine') === engineName);
+    if (tab) tabsContainer.appendChild(tab);
   });
 }
 
@@ -978,13 +959,6 @@ function setSearchEngineIcon(engineName: string): void {
   }
 }
 
-// Add this function if it doesn't exist
-function getSearchEngineIconPath(engineName: string): string {
-  const allEngines = SearchEngineManager.getAllEngines();
-  const engine = allEngines.find(e => e.name === engineName);
-  return engine ? engine.icon : '../images/placeholder-icon.svg';
-}
-
 // 在文件末尾统一导出所有需要的函数和变量
 export { 
   SearchEngineManager, 
@@ -993,6 +967,5 @@ export {
   createSearchEngineDropdown, 
   initializeSearchEngineDialog,
   getSearchUrl,
-  createTemporarySearchTabs,
-  getSearchEngineIconPath
+  createTemporarySearchTabs
 };

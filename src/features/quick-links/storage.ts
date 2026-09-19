@@ -65,6 +65,13 @@ export function createQuickLinksCache(storage: KeyValueStorage, now: () => numbe
       timestamp = now()
       storage.setItem('quickLinksCache', JSON.stringify({ data, timestamp }))
     },
+    // 数据变更（编辑、删除、加入黑名单）后调用：内存与持久化同时清空，
+    // 否则下一次生成会拿旧快照覆盖刚保存的状态
+    invalidate(): void {
+      data = null
+      timestamp = 0
+      storage.removeItem('quickLinksCache')
+    },
     load(): void {
       const cached = storage.getItem('quickLinksCache')
       if (!cached) return

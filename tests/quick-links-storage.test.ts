@@ -47,3 +47,36 @@ test('clears malformed persisted cache data', () => {
   assert.equal(cache.data, null)
   assert.equal(entries.has('quickLinksCache'), false)
 })
+
+test('persists written entries so the next page load reuses them', () => {
+  const entries = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => entries.get(key) ?? null,
+    setItem: (key: string, value: string) => entries.set(key, value),
+    removeItem: (key: string) => entries.delete(key),
+  }
+
+  createQuickLinksCache(storage, () => 1_000).set([link])
+
+  const nextPage = createQuickLinksCache(storage, () => 2_000)
+  nextPage.load()
+  assert.deepEqual(nextPage.data, [link])
+  assert.equal(nextPage.isValid(), true)
+})
+
+test('invalidate drops both the cached data and the persisted entry', () => {
+  const entries = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => entries.get(key) ?? null,
+    setItem: (key: string, value: string) => entries.set(key, value),
+    removeItem: (key: string) => entries.delete(key),
+  }
+
+  const cache = createQuickLinksCache(storage, () => 1_000)
+  cache.set([link])
+  cache.invalidate()
+
+  assert.equal(cache.data, null)
+  assert.equal(cache.isValid(), false)
+  assert.equal(entries.has('quickLinksCache'), false)
+})

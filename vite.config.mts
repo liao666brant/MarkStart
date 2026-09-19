@@ -38,7 +38,25 @@ export default defineConfig({
       targets: [
         { src: 'manifest.json', dest: '.' },
         { src: '_locales/**/*', dest: '.' },
-        { src: 'images/**/*', dest: '.' },
+        {
+          // 只拷贝运行时引用的图片：图标已改用 icons.ts 的内联 SVG，sider-icon/ 是
+          // 根目录同名人物的重复副本，systermicon/ 与下列停用图标在源码和本地化文案中
+          // 均无引用（保留在仓库里，仅不进发布包）
+          src: [
+            'images/**/*',
+            '!images/sider-icon/**',
+            '!images/systermicon/**',
+            '!images/bing-logo.webp',
+            '!images/claude-logo.svg',
+            '!images/Reddit-logo.png',
+            '!images/twitter-logo.png',
+            '!images/link.png',
+            '!images/view-icon.svg',
+            '!images/wechat-donate.png',
+            '!images/wechatgroup.png',
+          ],
+          dest: '.',
+        },
         {
           src: 'src/startup-wallpaper.ts',
           dest: 'src',

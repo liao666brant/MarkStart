@@ -1,6 +1,4 @@
 type WorkerRequest =
-  | { readonly action: 'fetchBookmarks' }
-  | { readonly action: 'setDefaultBookmarkId'; readonly defaultBookmarkId: string | null }
   | {
       readonly action: 'openMultipleTabsAndGroup'
       readonly urls: readonly string[]
@@ -22,14 +20,6 @@ function parseWorkerRequest(value: unknown): WorkerRequest | undefined {
   if (!isRecord(value)) return undefined
 
   switch (value['action']) {
-    case 'fetchBookmarks':
-      return { action: 'fetchBookmarks' }
-    case 'setDefaultBookmarkId': {
-      const defaultBookmarkId = value['defaultBookmarkId']
-      return typeof defaultBookmarkId === 'string' || defaultBookmarkId === null
-        ? { action: 'setDefaultBookmarkId', defaultBookmarkId }
-        : undefined
-    }
     case 'openMultipleTabsAndGroup': {
       const urls = value['urls']
       const groupName = value['groupName']
@@ -86,7 +76,6 @@ function handleOpenMultipleTabsAndGroup(
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) {
     void chrome.tabs.create({ url: 'chrome://newtab' })
-    void chrome.storage.local.set({ defaultBookmarkId: null })
     void chrome.storage.sync.set({ openInNewTab: true })
   }
 })
@@ -99,33 +88,6 @@ chrome.runtime.onMessage.addListener((value: unknown, _sender, sendResponse) => 
   }
 
   switch (request.action) {
-    case 'fetchBookmarks':
-      chrome.bookmarks.getTree((bookmarks) => {
-        if (chrome.runtime.lastError) {
-          sendResponse({ error: chrome.runtime.lastError.message })
-          return
-        }
-
-        const processedBookmarks: chrome.bookmarks.BookmarkTreeNode[] = []
-        const visit = (node: chrome.bookmarks.BookmarkTreeNode): void => {
-          if (node.url !== undefined) processedBookmarks.push(node)
-          node.children?.forEach(visit)
-        }
-        bookmarks.forEach(visit)
-        sendResponse({ bookmarks, processedBookmarks, success: true })
-      })
-      return true
-
-    case 'setDefaultBookmarkId':
-      void chrome.storage.local.set({ defaultBookmarkId: request.defaultBookmarkId }, () => {
-        if (chrome.runtime.lastError) {
-          sendResponse({ success: false, error: chrome.runtime.lastError.message })
-          return
-        }
-        sendResponse({ success: true })
-      })
-      return true
-
     case 'openMultipleTabsAndGroup':
       handleOpenMultipleTabsAndGroup(request, sendResponse)
       return true

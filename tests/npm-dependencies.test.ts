@@ -43,7 +43,9 @@ test('builds npm runtime dependencies into the extension page bundle', (context)
   assert.doesNotMatch(indexHtml, /(?:lodash|Sortable|qrcode)\.min\.js/)
   const bundle = readFileSync(resolve(outputDirectory, bundlePath), 'utf8')
   assert.match(bundle, /QRCode/)
-  assert.match(bundle, /debounce/)
+  // radashi 的 debounce 会在返回的函数上挂 isPending/cancel/flush；属性名压缩后保留，
+  // 用来确认该依赖确实被打进产物（函数名本身会被压缩器改写）
+  assert.match(bundle, /isPending/)
   assert.match(bundle, /throttle/)
   assert.match(bundle, /sortable/)
   assert.match(bundle, /swiper-slide/)

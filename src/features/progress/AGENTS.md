@@ -14,6 +14,7 @@
 ## 关键依赖与数据
 
 - 依赖 `#year-progress` 页面节点与当前日期。
+- DOM 用 `createElement`/`textContent` 构建（12 段进度条、`${currentYear} ${chrome.i18n.getMessage('yearProgress')}` 文案与百分比），不要回退为 innerHTML 拼接（消除 i18n 注入面）。
 
 ## 测试与质量
 
@@ -27,8 +28,3 @@
 
 - `index.ts`
 - `../../main.ts`、`../../index.html`
-
-## 变更记录
-
-- 2026-08-23：DOM 构建从 innerHTML 拼接改为 createElement + textContent（消除 i18n 注入面）。
-- 2026-08-20：进度模块入口收紧为目录 `index.ts`。

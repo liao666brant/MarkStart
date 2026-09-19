@@ -8,6 +8,7 @@ MarkStart 是 Chrome/Edge 的 MV3 新标签页扩展：将书签、搜索、快�
 
 ```mermaid
 flowchart TD
+  HTML[src/index.html] --> STARTUP[src/startup-wallpaper.ts]
   HTML[src/index.html] --> MAIN[src/main.ts]
   MAIN --> SHARED[shared]
   MAIN --> BOOKMARKS[bookmarks]
@@ -37,14 +38,14 @@ flowchart TD
 
 | 模块 | 职责 | 入口/索引 |
 | --- | --- | --- |
-| [书签](src/features/bookmarks/AGENTS.md) | 书签树、目录、排序、默认目录和手势 | `features/bookmarks/page.ts` |
-| [快捷链接](src/features/quick-links/AGENTS.md) | 历史、固定站点、菜单、二维码和缓存 | `features/quick-links/index.ts` |
-| [搜索](src/features/search/AGENTS.md) | 搜索引擎选择与搜索 UI | `features/search/dropdown.ts` |
-| [设置](src/features/settings/AGENTS.md) | 设置侧栏与偏好交互 | `features/settings/index.ts` |
-| [壁纸](src/features/wallpaper/AGENTS.md) | 预设、上传、Bing 与背景持久化 | `features/wallpaper/index.ts` |
-| [欢迎与提示](src/features/onboarding/AGENTS.md) | 欢迎语和功能提示 | `features/onboarding/*.ts` |
-| [年度进度](src/features/progress/AGENTS.md) | 页面底部年度进度 | `features/progress/index.ts` |
-| [共享](src/shared/AGENTS.md) | 国际化、图标、全局声明和类型 | `shared/*.ts` |
+| [书签](src/features/bookmarks/AGENTS.md) | 书签树、固定目录、排序、默认目录和手势 | `src/features/bookmarks/page.ts` |
+| [快捷链接](src/features/quick-links/AGENTS.md) | 固定站点、黑名单与历史渲染常用站点，含菜单、二维码与缓存 | `src/features/quick-links/index.ts` |
+| [搜索](src/features/search/AGENTS.md) | 内置与自定义引擎、下拉与建议、跨引擎临时标签 | `src/features/search/dropdown.ts` |
+| [设置](src/features/settings/AGENTS.md) | 设置侧栏、偏好项与外观/布局交互 | `src/features/settings/index.ts` |
+| [壁纸](src/features/wallpaper/AGENTS.md) | 预设、上传、Bing 与纯色背景、首帧预览和持久化 | `src/features/wallpaper/index.ts` |
+| [欢迎与提示](src/features/onboarding/AGENTS.md) | 分时段或自定义欢迎语、功能提示 | `src/features/onboarding/*.ts` |
+| [年度进度](src/features/progress/AGENTS.md) | 页面底部年度进度 | `src/features/progress/index.ts` |
+| [共享](src/shared/AGENTS.md) | 国际化、favicon、内联图标、全局声明和类型 | `src/shared/*.ts` |
 | [测试](tests/AGENTS.md) | Node 测试、构建与发布包契约 | `tests/*.test.ts` |
 | [打包](scripts/AGENTS.md) | 发布 ZIP 创建 | `scripts/package-extension.ts` |
 
@@ -55,6 +56,9 @@ flowchart TD
 - `npm run build`：生成 MV3 可加载目录 `dist/`。
 - `npm run package`：先构建，再生成 `release/MarkStart-<version>.zip`。
 - `manifest.json` 对外入口保持 `src/index.html` 与 `src/background.js`；不要将 TypeScript 源文件写入发布包。
+- `src/startup-wallpaper.ts` 经 `vite-plugin-static-copy` 复制为 `src/startup-wallpaper.js`，由 `src/index.html` 以 `<script vite-ignore>` 在模块入口之前执行，负责首帧绘制已保存壁纸。
+- `images/**` 的静态复制带排除清单，只拷贝运行时引用的图片；新增资源前先确认源码或本地化文案是否引用。
+- 构建期把 `console.log/debug/info` 调用点替换为空操作（保留 `warn`/`error`）；调试 watch 产物时设 `MS_KEEP_CONSOLE=1` 保留日志。
 
 ## 测试策略
 
@@ -77,19 +81,8 @@ flowchart TD
 - 尊重未提交改动与 `dist/`、`release/` 忽略规则；未经用户要求不暂存、提交、推送或删除文件。
 - 修改扩展行为时，以现有 MV3 页面行为为兼容基线；纯路径重组也要复核 `main.ts`、入口测试与构建产物。
 
-## 变更记录
-
-- 2026-09-19：新标签页首帧壁纸预览——在线地址与 `idb:` 上传壁纸设置成功后生成约 160px 低清预览，启动时先铺底再由真实壁纸替换；本地预设图仍由 `startup-wallpaper.js` 在首帧直接绘制。
-- 2026-09-19：交互与数据修复——搜索标签栏改容器级委托（消除重复开标签）、快捷链接缓存写入与失效、搜索建议改 DOM 构造防注入、移除默认书签星标与后台死 action（旧版 `defaultBookmarkId` 对启动目录的影响保留）、壁纸恢复失败不再覆写偏好、删除书签失败可回滚、滚动指示器与编辑对话框监听修复。
-- 2026-09-19：评审问题修复——滚动指示器改为按容器绑定并清理（切走再切回后显隐恢复更新）、恢复旧版 `localStorage.defaultBookmarkId` 的启动目录与侧边栏选中偏好、壁纸预览取回在线原图加 8 秒超时并改用 `createImageBitmap` 按目标宽度直接解码、预览写回前校验壁纸来源未被切换。
-- 2026-09-19：构建瘦身——`images/` 静态复制排除 9 个无引用资源，dist 由 3.08MB 降至 2.84MB。
-- 2026-08-23：样式工程化——安装 less，`styles.css`（2023 行）按功能域连续切分为 `src/styles/` 下 13 个 .less + 色板变量，入口 `styles.less`；构建产物与改造前字节级一致（同内容 hash）。
-- 2026-08-23：全仓性能整改——快捷链接缓存顺序修复、书签事件合流与懒渲染、壁纸恢复先行并行与网格懒构建、搜索监听器去重与过期查询丢弃、qrcode 拆按需 chunk、构建期剥离 console.log/debug/info（保留 warn/error）。
-- 2026-08-20：功能与共享代码已按领域目录重组，快捷链接已拆分为职责模块。
-- 2026-08-20：建立初次 AI 上下文索引。
-
 ## 索引状态
-- 上次索引：2026-08-23T15:17:22Z（@d885510）
-- 基线提交：d885510f5a7b3b0e05e6ada57bcfd39769906437
+- 上次索引：2026-09-19T12:29:11Z
+- 基线提交：53844d5214ca649c8c7cc265c203162addf9c35d
 - 已知缺口：未发现
 - 扫描进度：已完成

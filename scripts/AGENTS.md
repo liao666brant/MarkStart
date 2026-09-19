@@ -27,7 +27,3 @@
 
 - `package-extension.ts`
 - `../package.json`、`../manifest.json`、`../tests/package-extension.test.ts`
-
-## 变更记录
-
-- 2026-08-20：Node 打包脚本已迁移为 TypeScript。

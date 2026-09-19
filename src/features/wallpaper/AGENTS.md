@@ -18,6 +18,7 @@
 - 首帧预览（`preview.ts`）：在线地址与 `idb:` 上传壁纸在设置成功后生成约 160px 宽的低清 WebP，存 `localStorage['wallpaperPreview'] = {source, dataUrl}`；启动时 `source` 与 `originalWallpaper` 一致才先铺底，真实壁纸加载完成后覆盖同一批样式属性。本地预设图不在预览范围内——`startup-wallpaper.js` 已在首帧直接绘制这类来源；引用不一致、来源不支持或数据损坏时启动路径会删除该键自愈。生成预览不阻塞壁纸切换：上传壁纸直接读 IndexedDB 的 Blob，在线地址取回带 8 秒 AbortController 超时并用 `createImageBitmap` 按目标宽度直接解码（不先加载整幅原图），写回前校验 `originalWallpaper` 仍是该来源；切纯色背景或重置壁纸时会清除该键。
 - 首帧绘制分工：`src/startup-wallpaper.ts`（`index.html` 中 parser-blocking 的内联脚本，构建为 `startup-wallpaper.js`）在解析期直接绘制 `originalWallpaper` 中可立即使用的来源（本地预设相对路径与在线 URL；`idb:`、`data:` 或 `useDefaultBackground === 'true'` 时直接返回）；页面的 `initializeWallpaper` 负责恢复、旧格式迁移、`idb:` Blob 解析与预览铺底，两者写同一批 body 样式属性。
 - 选项交互：纯色背景项（`.settings-bg-option`）由 `handleBackgroundOptionClick` 处理，写 `useDefaultBackground='true'` 并清除壁纸与首帧预览；预设/上传壁纸项（`.wallpaper-option`）在内联 click 中调 `setWallpaper`，必应项（`.bing-wallpaper-item`）走 `handleWallpaperOptionClick`，两者都在图片校验与持久化成功后才切换选中态，失败保持原背景与选中不变。
+- 应用竞态：`applyAndSaveWallpaper` 用递增的 `wallpaperApplyToken` 标记每次请求，图片加载完成后仍是最新一次请求才写入 `originalWallpaper` 与绘制；被后一次选择顶替时返回 `false`（`setWallpaper` 透传该结果），调用方保持当前背景与选中态。慢加载的壁纸不得覆盖之后选择的壁纸。
 - 启动性能契约：`bootstrap` 中壁纸恢复（`initializeWallpaper`）与用户壁纸清单加载并行且先于一切网格构建；预设与 Bing 网格在设置侧栏首次打开时才构建（触发源：`#settings-link` capture 点击 + `markstart:open-settings` 事件，均为一次性）。不要把网格构建挪回启动路径。
 - Bing 请求治理：元数据按日缓存（localStorage 带日期戳），失败后 30 分钟退避，fetch 带 8 秒 AbortController 超时；缩略图用 `urlbase` 拼 `_800x480.jpg` 低清版，点击设壁纸才取 UHD 原图。
 - 背景只在 body 一层绘制（inline background + 深色模式 CSS 变量），main 不再持有 background 规则；不要恢复双层绘制。

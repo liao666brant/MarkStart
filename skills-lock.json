@@ -5,7 +5,13 @@
       "source": "liao666brant/skills",
       "sourceType": "github",
       "skillPath": "skills/index-project/SKILL.md",
-      "computedHash": "e7ddca4181d7c930e5a1b786fe39c4af7b85fddd5e6e07bc25b62085aa8c755f"
+      "computedHash": "3d77128053e580a5effec3b040264d35e2a249ea784487e62a8fa25946fce8a8"
+    },
+    "writing-for-agents": {
+      "source": "liao666brant/skills",
+      "sourceType": "github",
+      "skillPath": "skills/writing-for-agents/SKILL.md",
+      "computedHash": "4b2fed83d21cd54aea3384c2041ed670539cd8860df420d0ae2cb419991fc638"
     }
   }
 }

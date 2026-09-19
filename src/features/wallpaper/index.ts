@@ -83,6 +83,8 @@ export class WallpaperManager {
     // 数据级选中值：启动路径只记录，设置面板网格真正构建时再应用高亮
     private selectedWallpaperKey: string | null = null;
     private settingsGridPromise: Promise<void> | null = null;
+    // 壁纸应用请求代次：加载期间用户又选了别的壁纸时，过期结果不得落地
+    private wallpaperApplyToken = 0;
 
     constructor() {
         // 首先初始化所有必要的属性
@@ -524,8 +526,7 @@ export class WallpaperManager {
                 url = `${url}?q=80&w=1920&auto=format&fit=crop`;
             }
 
-            await this.applyAndSaveWallpaper(url);
-            return true;
+            return await this.applyAndSaveWallpaper(url);
         } catch (error) {
             console.error('设置壁纸失败:', error instanceof Error ? error : String(error));
             alert('设置壁纸失败，请重试');
@@ -533,10 +534,16 @@ export class WallpaperManager {
         }
     }
 
-    private async applyAndSaveWallpaper(source: string): Promise<void> {
+    // 返回本次请求是否真正落地：加载期间被更新的选择顶替时返回 false，调用方保持现有状态
+    private async applyAndSaveWallpaper(source: string): Promise<boolean> {
+        const token = ++this.wallpaperApplyToken;
+
         // 先完成解析与图片加载，成功后再提交持久化与界面状态，避免失败丢失旧壁纸偏好
         const displayUrl = source.startsWith('idb:') ? await this.resolveDisplayUrl(source) : source;
         await this.waitForImage(displayUrl);
+
+        // 慢加载的壁纸不得覆盖之后选择的壁纸（引用、样式与预览都以最新一次请求为准）
+        if (token !== this.wallpaperApplyToken) return false;
 
         const previousReference = localStorage.getItem('originalWallpaper');
 
@@ -556,6 +563,7 @@ export class WallpaperManager {
         void this.savePreview(source, displayUrl);
 
         await this.pruneReplacedWallpaper(previousReference, source);
+        return true;
     }
 
     private async migrateLegacyStoredWallpaper(value: string): Promise<string> {

@@ -28,7 +28,6 @@
 - `global.d.ts` 只有类型作用，不能替代实际全局函数的初始化。
 - `localization.ts` 的加载顺序早于使用 `getLocalizedMessage` 的页面模块。
 - 通用 UI 图标（`ICONS` 键）是 `icons.ts` 中的内联 SVG，不再对应 `images/` 文件；搜索引擎 logo、占位图等专用图像仍走 `images/*.svg`。
-- `src/_locales/` 下的残缺 `zh_CN` 文件不在构建路径上，运行时消息以项目根 `_locales/` 为准。
 
 ## 相关文件清单
 
